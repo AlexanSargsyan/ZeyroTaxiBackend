@@ -14,6 +14,8 @@ namespace Taxi_API.Models
 
         public List<Photo> Photos { get; set; } = new();
 
+        public List<Order> Orders { get; set; } = new();
+
         public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 
         // results of automated checks

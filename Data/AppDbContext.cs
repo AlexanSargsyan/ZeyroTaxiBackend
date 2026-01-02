@@ -11,6 +11,7 @@ namespace Taxi_API.Data
         public DbSet<DriverProfile> DriverProfiles => Set<DriverProfile>();
         public DbSet<Photo> Photos => Set<Photo>();
         public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
+        public DbSet<Order> Orders => Set<Order>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -29,6 +30,9 @@ namespace Taxi_API.Data
                 .WithOne(p => p.DriverProfile)
                 .HasForeignKey(p => p.DriverProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Order>()
+                .HasKey(o => o.Id);
 
             base.OnModelCreating(modelBuilder);
         }

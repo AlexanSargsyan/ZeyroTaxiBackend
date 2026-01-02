@@ -1,76 +1,97 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+﻿using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Taxi_API.Data;
 using Taxi_API.Services;
 using System.Text;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Bind to localhost on port 5000 so the API and Swagger run on http://localhost:5000
-//builder.WebHost.UseUrls("http://localhost:5000");
+// Bind for Docker / ECS
 builder.WebHost.UseUrls("http://0.0.0.0:5000");
 
 builder.Services.AddControllers();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=taxi.db"));
+    options.UseSqlite(
+        builder.Configuration.GetConnectionString("Default")
+        ?? "Data Source=taxi.db"
+    )
+);
 
 builder.Services.AddScoped<IStorageService, LocalStorageService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddSingleton<IImageComparisonService, OpenCvImageComparisonService>();
 
+// Register OpenAI service for voice/chat
+builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
+
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";
-var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
 
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-}).AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+var signingKey = new SymmetricSecurityKey(
+    Encoding.UTF8.GetBytes(jwtKey)
+);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        ValidateIssuer = true,
-        ValidIssuer = issuer,
-        ValidateAudience = false,
-        ValidateIssuerSigningKey = true,
-        IssuerSigningKey = signingKey,
-        ValidateLifetime = true
-    };
-});
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = issuer,
+            ValidateAudience = false,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = signingKey,
+            ValidateLifetime = true
+        };
+    });
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Haarcascade file should be placed into application base directory or bundled in deployment: "haarcascade_frontalface_default.xml"
+
+// REQUIRED FOR ALB / REVERSE PROXY
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders =
+        ForwardedHeaders.XForwardedFor |
+        ForwardedHeaders.XForwardedProto |
+        ForwardedHeaders.XForwardedHost
+});
+
+// IMPORTANT: do NOT force HTTPS inside container unless ALB listener is HTTPS
+// app.UseHttpsRedirection();
 
 if (app.Environment.IsDevelopment())
 {
     app.UseDeveloperExceptionPage();
 }
 
-// Enable Swagger UI and configure it to use localhost:5000
+// Swagger (use relative paths)
 app.UseSwagger();
-var swaggerHost = "localhost:5000";
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint($"http://{swaggerHost}/swagger/v1/swagger.json", "Taxi API V1");
-    c.RoutePrefix = "swagger"; // serve at /swagger
+    // Use relative JSON endpoint so the UI works regardless of host/port
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Taxi API V1");
+    c.RoutePrefix = "swagger";
 });
 
-// redirect root to swagger UI on localhost:5000
-app.MapGet("/", () => Results.Redirect("http://localhost:5000/swagger/index.html"));
+// Root → Swagger (relative redirect)
+app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
+// Ensure DB exists
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

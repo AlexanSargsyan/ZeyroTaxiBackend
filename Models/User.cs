@@ -17,6 +17,8 @@ namespace Taxi_API.Models
 
         public DriverProfile? DriverProfile { get; set; }
 
+        public List<Order> Orders { get; set; } = new();
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 }
