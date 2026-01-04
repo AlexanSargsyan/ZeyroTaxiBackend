@@ -31,8 +31,21 @@ namespace Taxi_API.Data
                 .HasForeignKey(p => p.DriverProfileId)
                 .OnDelete(DeleteBehavior.Cascade);
 
+            // Basic configuration for Order and explicit relationships to User
             modelBuilder.Entity<Order>()
                 .HasKey(o => o.Id);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.User)
+                .WithMany(u => u.Orders)
+                .HasForeignKey(o => o.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<Order>()
+                .HasOne(o => o.Driver)
+                .WithMany() // no navigation property on User for driven orders
+                .HasForeignKey(o => o.DriverId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             base.OnModelCreating(modelBuilder);
         }
