@@ -96,7 +96,7 @@ namespace Taxi_API.Controllers
             // not an existing driver -> register as driver but do NOT auto-login (client will call login afterwards)
             if (user == null)
             {
-                user = new User { Id = Guid.NewGuid(), Phone = phone, Name = req.Name, IsDriver = true };
+                user = new User { Id = Guid.NewGuid(), Phone = phone, Name = req.Name, IsDriver = true, PhoneVerified = true };
                 _db.Users.Add(user);
                 await _db.SaveChangesAsync();
                 return Ok(new DriverAuthResponse(null, session.Id.ToString(), true));
@@ -104,11 +104,41 @@ namespace Taxi_API.Controllers
 
             // user exists but not driver
             user.IsDriver = true;
+            user.PhoneVerified = true;
             if (!string.IsNullOrWhiteSpace(req.Name)) user.Name = req.Name;
             await _db.SaveChangesAsync();
 
             // return registered marker without token (driver should login explicitly)
             return Ok(new DriverAuthResponse(null, session.Id.ToString(), true));
+        }
+
+        [HttpPost("verify")]
+        public async Task<IActionResult> VerifyDriver([FromBody] AuthRequest req)
+        {
+            if (string.IsNullOrWhiteSpace(req.AuthSessionId) || string.IsNullOrWhiteSpace(req.Code))
+                return BadRequest("AuthSessionId and Code are required");
+
+            if (!Guid.TryParse(req.AuthSessionId, out var sessionId)) return BadRequest("Invalid AuthSessionId");
+
+            var session = await _db.AuthSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
+            if (session == null) return BadRequest("Invalid session");
+
+            if (session.ExpiresAt < DateTime.UtcNow) return BadRequest("Code expired");
+
+            if (session.Code != req.Code) return BadRequest("Invalid code");
+
+            // mark verified
+            session.Verified = true;
+            await _db.SaveChangesAsync();
+
+            var phone = session.Phone;
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Phone == phone);
+            if (user == null) return NotFound("User not found");
+
+            user.PhoneVerified = true;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { Verified = true, Phone = user.Phone });
         }
 
         [Authorize]

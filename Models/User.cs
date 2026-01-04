@@ -15,6 +15,8 @@ namespace Taxi_API.Models
 
         public bool IsDriver { get; set; }
 
+        public bool PhoneVerified { get; set; }
+
         public DriverProfile? DriverProfile { get; set; }
 
         public List<Order> Orders { get; set; } = new();
