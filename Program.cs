@@ -31,6 +31,9 @@ builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 // WebSocket service
 builder.Services.AddSingleton<ISocketService, WebSocketService>();
 
+// Background processor for scheduled plans
+builder.Services.AddHostedService<ScheduledPlanProcessor>();
+
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";
 

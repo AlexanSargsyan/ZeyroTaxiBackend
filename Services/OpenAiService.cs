@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Taxi_API.Services
 {
@@ -13,10 +14,24 @@ namespace Taxi_API.Services
     {
         private readonly string _apiKey;
         private readonly HttpClient _http;
+        private readonly ILogger<OpenAiService> _logger;
 
-        public OpenAiService(IConfiguration config)
+        public OpenAiService(IConfiguration config, ILogger<OpenAiService> logger)
         {
+            _logger = logger;
             _apiKey = config["OpenAI:ApiKey"] ?? string.Empty;
+
+            // fallback to environment variables (double-underscore form for .NET env binding or standard name)
+            if (string.IsNullOrWhiteSpace(_apiKey))
+            {
+                _apiKey = Environment.GetEnvironmentVariable("OpenAI__ApiKey") ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(_apiKey))
+            {
+                _logger.LogWarning("OpenAI API key not configured. OpenAI features will not work. Set 'OpenAI:ApiKey' via configuration or environment variable 'OpenAI__ApiKey'/'OPENAI_API_KEY'.");
+            }
+
             _http = new HttpClient();
             if (!string.IsNullOrEmpty(_apiKey))
             {
