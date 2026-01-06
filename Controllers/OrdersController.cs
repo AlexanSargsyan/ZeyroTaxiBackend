@@ -162,16 +162,38 @@ namespace Taxi_API.Controllers
             order.Id = Guid.NewGuid();
             order.UserId = userId;
             order.CreatedAt = DateTime.UtcNow;
+
+            // If this is a scheduled order in the future, do not connect sockets or search drivers now
+            if (order.ScheduledFor.HasValue && order.ScheduledFor.Value > DateTime.UtcNow)
+            {
+                order.Status = "scheduled";
+
+                // compute distance, eta and price for client convenience
+                var distance = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
+                var eta = (int)Math.Ceiling(distance / 0.5);
+                var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.PetAllowed, order.ChildSeat);
+
+                order.DistanceKm = Math.Round(distance, 2);
+                order.EtaMinutes = eta;
+                order.Price = price;
+
+                _db.Orders.Add(order);
+                await _db.SaveChangesAsync();
+
+                // Do not notify sockets or assign driver now
+                return Ok(order);
+            }
+
             order.Status = "searching";
 
             // Compute distance, eta and price
-            var distance = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
-            var eta = (int)Math.Ceiling(distance / 0.5);
-            var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.PetAllowed, order.ChildSeat);
+            var distanceNow = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
+            var etaNow = (int)Math.Ceiling(distanceNow / 0.5);
+            var priceNow = CalculatePrice(distanceNow, etaNow, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.PetAllowed, order.ChildSeat);
 
-            order.DistanceKm = Math.Round(distance, 2);
-            order.EtaMinutes = eta;
-            order.Price = price;
+            order.DistanceKm = Math.Round(distanceNow, 2);
+            order.EtaMinutes = etaNow;
+            order.Price = priceNow;
 
             _db.Orders.Add(order);
             await _db.SaveChangesAsync();
