@@ -28,6 +28,9 @@ builder.Services.AddSingleton<IImageComparisonService, OpenCvImageComparisonServ
 // Register OpenAI service for voice/chat
 builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
+// WebSocket service
+builder.Services.AddSingleton<ISocketService, WebSocketService>();
+
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";
 
@@ -64,6 +67,9 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
         ForwardedHeaders.XForwardedHost
 });
 
+// enable websockets
+app.UseWebSockets();
+
 // DO NOT force HTTPS inside container unless ALB listener is HTTPS
 // app.UseHttpsRedirection();
 
@@ -86,6 +92,30 @@ app.MapGet("/", () => Results.Redirect("/swagger"));
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// WebSocket endpoint at /ws?userId={guid}&role=driver|user
+app.Map("/ws", async context =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("WebSocket requests only");
+        return;
+    }
+
+    var userIdStr = context.Request.Query["userId"].ToString();
+    var role = context.Request.Query["role"].ToString();
+    if (!Guid.TryParse(userIdStr, out var userId))
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("userId query parameter required and must be a GUID");
+        return;
+    }
+
+    var socket = await context.WebSockets.AcceptWebSocketAsync();
+    var wsService = context.RequestServices.GetRequiredService<ISocketService>();
+    await wsService.HandleRawSocketAsync(userId, role, socket);
+});
 
 app.MapControllers();
 

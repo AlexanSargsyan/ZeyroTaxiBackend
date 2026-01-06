@@ -6,6 +6,7 @@ using System.Linq;
 using Taxi_API.Data;
 using Taxi_API.Models;
 using Taxi_API.DTOs;
+using Taxi_API.Services;
 
 namespace Taxi_API.Controllers
 {
@@ -14,10 +15,12 @@ namespace Taxi_API.Controllers
     public class OrdersController : ControllerBase
     {
         private readonly AppDbContext _db;
+        private readonly ISocketService _socketService;
 
-        public OrdersController(AppDbContext db)
+        public OrdersController(AppDbContext db, ISocketService socketService)
         {
             _db = db;
+            _socketService = socketService;
         }
 
         private static double ToRadians(double deg) => deg * Math.PI / 180.0;
@@ -173,6 +176,9 @@ namespace Taxi_API.Controllers
             _db.Orders.Add(order);
             await _db.SaveChangesAsync();
 
+            // notify via socket that car finding started
+            await _socketService.NotifyOrderEventAsync(order.Id, "carFinding", new { status = "searching" });
+
             // Simulate driver search: pick first available driver (IsDriver==true)
             var driver = await _db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null);
             if (driver != null)
@@ -187,7 +193,8 @@ namespace Taxi_API.Controllers
                 // Price remains calculated above
                 await _db.SaveChangesAsync();
 
-                // In real app, notify driver via push/SMS
+                // notify assigned
+                await _socketService.NotifyOrderEventAsync(order.Id, "carFound", new { driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone } });
             }
 
             return Ok(order);
@@ -203,8 +210,33 @@ namespace Taxi_API.Controllers
             order.CancelledAt = DateTime.UtcNow;
             order.CancelReason = reason;
             await _db.SaveChangesAsync();
+
+            // notify both sides
+            await _socketService.NotifyOrderEventAsync(order.Id, "cancelUser", new { reason });
+            await _socketService.NotifyOrderEventAsync(order.Id, "cancelDriver", new { reason });
+
             return Ok(order);
         }
+
+        // Endpoint for driver to push location updates for an order
+        [Authorize]
+        [HttpPost("location/{orderId}")]
+        public async Task<IActionResult> UpdateLocation(Guid orderId, [FromBody] LocationUpdate req)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
+            if (order == null) return NotFound();
+
+            // only driver assigned to this order can update location
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            if (order.DriverId != userId) return Forbid();
+
+            // Broadcast to rider and driver (if connected)
+            await _socketService.BroadcastCarLocationAsync(orderId, req.Lat, req.Lng);
+            return Ok(new { ok = true });
+        }
+
+        public record LocationUpdate(double Lat, double Lng);
 
         [Authorize]
         [HttpPost("driver/accept/{id}")]
