@@ -348,5 +348,75 @@ namespace Taxi_API.Controllers
             await _db.SaveChangesAsync();
             return Ok(order);
         }
+
+        [Authorize]
+        [HttpGet("trips")]
+        public async Task<IActionResult> GetTrips([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? status = null, [FromQuery] bool asDriver = false)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            IQueryable<Order> q = _db.Orders.AsQueryable();
+            if (asDriver)
+            {
+                q = q.Where(o => o.DriverId == userId);
+            }
+            else
+            {
+                q = q.Where(o => o.UserId == userId);
+            }
+
+            if (!string.IsNullOrEmpty(status))
+            {
+                q = q.Where(o => o.Status == status);
+            }
+
+            var total = await q.CountAsync();
+
+            var items = await q
+                .OrderByDescending(o => o.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(o => new
+                {
+                    id = o.Id,
+                    action = o.Action,
+                    pickup = o.Pickup,
+                    destination = o.Destination,
+                    pickupLat = o.PickupLat,
+                    pickupLng = o.PickupLng,
+                    destLat = o.DestLat,
+                    destLng = o.DestLng,
+                    stopsJson = o.StopsJson,
+                    packageDetails = o.PackageDetails,
+                    scheduledFor = o.ScheduledFor,
+                    status = o.Status,
+                    createdAt = o.CreatedAt,
+                    completedAt = o.CompletedAt,
+                    cancelledAt = o.CancelledAt,
+                    cancelReason = o.CancelReason,
+                    driverId = o.DriverId,
+                    driverName = o.DriverName,
+                    driverPhone = o.DriverPhone,
+                    driverCar = o.DriverCar,
+                    driverPlate = o.DriverPlate,
+                    etaMinutes = o.EtaMinutes,
+                    distanceKm = o.DistanceKm,
+                    price = o.Price,
+                    paymentMethod = o.PaymentMethod,
+                    petAllowed = o.PetAllowed,
+                    childSeat = o.ChildSeat,
+                    tariff = o.Tariff,
+                    vehicleType = o.VehicleType,
+                    rating = o.Rating,
+                    review = o.Review
+                })
+                .ToListAsync();
+
+            return Ok(new { total, page, pageSize, items });
+        }
     }
 }
