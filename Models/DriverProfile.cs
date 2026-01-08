@@ -21,5 +21,12 @@ namespace Taxi_API.Models
         // results of automated checks
         public bool? FaceMatch { get; set; }
         public bool? CarOk { get; set; }
+
+        // Car information
+        public string? CarMake { get; set; }
+        public string? CarModel { get; set; }
+        public string? CarColor { get; set; }
+        public string? CarPlate { get; set; }
+        public int? CarYear { get; set; }
     }
 }

@@ -146,5 +146,27 @@ namespace Taxi_API.Controllers
             if (user == null) return NotFound();
             return Ok(new DriverStatusResponse(user.DriverProfile?.Approved ?? false));
         }
+
+        [Authorize]
+        [HttpGet("car")]
+        public async Task<IActionResult> GetCarInfo()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var profile = await _db.DriverProfiles.Include(dp => dp.Photos).FirstOrDefaultAsync(dp => dp.UserId == userId);
+            if (profile == null) return NotFound();
+
+            return Ok(new
+            {
+                make = profile.CarMake,
+                model = profile.CarModel,
+                color = profile.CarColor,
+                plate = profile.CarPlate,
+                year = profile.CarYear,
+                approved = profile.Approved,
+                carOk = profile.CarOk
+            });
+        }
     }
 }
