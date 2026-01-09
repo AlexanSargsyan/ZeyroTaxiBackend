@@ -6,6 +6,11 @@ using Taxi_API.Data;
 using Taxi_API.DTOs;
 using Taxi_API.Models;
 using Taxi_API.Services;
+using Microsoft.Extensions.Configuration;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Taxi_API.Controllers
 {
@@ -16,12 +21,16 @@ namespace Taxi_API.Controllers
         private readonly AppDbContext _db;
         private readonly ITokenService _tokenService;
         private readonly IEmailService _email;
+        private readonly ISmsService _sms;
+        private readonly IConfiguration _config;
 
-        public DriverAuthController(AppDbContext db, ITokenService tokenService, IEmailService email)
+        public DriverAuthController(AppDbContext db, ITokenService tokenService, IEmailService email, ISmsService sms, IConfiguration config)
         {
             _db = db;
             _tokenService = tokenService;
             _email = email;
+            _sms = sms;
+            _config = config;
         }
 
         [HttpPost("request-code")]
@@ -29,11 +38,13 @@ namespace Taxi_API.Controllers
         {
             if (string.IsNullOrWhiteSpace(req.Phone)) return BadRequest("Phone is required");
 
-            var code = new Random().Next(100000, 999999).ToString();
+            var phone = req.Phone.Trim();
+            var code = new Random().Next(100000, 999999).ToString("D6");
+
             var session = new AuthSession
             {
                 Id = Guid.NewGuid(),
-                Phone = req.Phone,
+                Phone = phone,
                 Code = code,
                 Verified = false,
                 CreatedAt = DateTime.UtcNow,
@@ -43,17 +54,27 @@ namespace Taxi_API.Controllers
             _db.AuthSessions.Add(session);
             await _db.SaveChangesAsync();
 
-            await _email.SendAsync(req.Phone + "@example.com", "Your driver verification code", $"Your code is: {code}");
+            // send via SMS and email fallback
+            try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {code}"); } catch { }
+            try { await _email.SendAsync(phone + "@example.com", "Your driver verification code", $"Your code is: {code}"); } catch { }
 
-            // Do not create/register user here. Client must verify first.
-            return Ok(new { Sent = true });
+            var allowReturn = false;
+            if (bool.TryParse(_config["Auth:ReturnCodeInResponse"], out var cfgVal) && cfgVal) allowReturn = true;
+#if DEBUG
+            allowReturn = true;
+#endif
+            if (allowReturn)
+            {
+                return Ok(new { sent = true, code = code, authSessionId = session.Id.ToString() });
+            }
+
+            return Ok(new { sent = true });
         }
 
         [HttpPost("resend")]
         public async Task<IActionResult> Resend([FromBody] ResendRequest req)
         {
-            if (string.IsNullOrWhiteSpace(req.Phone))
-                return BadRequest("Phone is required");
+            if (string.IsNullOrWhiteSpace(req.Phone)) return BadRequest("Phone is required");
 
             var phone = req.Phone.Trim();
 
@@ -62,21 +83,26 @@ namespace Taxi_API.Controllers
                 .OrderByDescending(s => s.CreatedAt)
                 .FirstOrDefaultAsync();
 
-            if (session == null)
-                return BadRequest("No active session found");
+            if (session == null) return BadRequest("No active session found");
 
-            session.Code = RandomNumberGenerator.GetInt32(100000, 999999).ToString();
+            session.Code = RandomNumberGenerator.GetInt32(100000, 999999).ToString("D6");
             session.ExpiresAt = DateTime.UtcNow.AddMinutes(10);
-
             await _db.SaveChangesAsync();
 
-            await _email.SendAsync(
-                session.Phone + "@example.com",
-                "Your driver verification code (resend)",
-                $"Your code is: {session.Code}"
-            );
+            try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {session.Code}"); } catch { }
+            try { await _email.SendAsync(phone + "@example.com", "Your driver verification code (resend)", $"Your code is: {session.Code}"); } catch { }
 
-            return Ok(new { Sent = true });
+            var allowReturn = false;
+            if (bool.TryParse(_config["Auth:ReturnCodeInResponse"], out var cfgVal2) && cfgVal2) allowReturn = true;
+#if DEBUG
+            allowReturn = true;
+#endif
+            if (allowReturn)
+            {
+                return Ok(new { sent = true, code = session.Code, authSessionId = session.Id.ToString() });
+            }
+
+            return Ok(new { sent = true });
         }
 
 
@@ -107,7 +133,117 @@ namespace Taxi_API.Controllers
                 await _db.SaveChangesAsync();
             }
 
-            return Ok(new { AuthSessionId = session.Id.ToString() });
+            return Ok(new { authSessionId = session.Id.ToString() });
+        }
+
+        // Accept token in body: { "token": "..." } — Swagger will show request body
+        [HttpPost("login")]
+        [AllowAnonymous]
+        public async Task<IActionResult> Login([FromBody] AuthTokenRequest? body)
+        {
+            string? tokenToValidate = null;
+
+            // prefer token in body if provided
+            if (body != null && !string.IsNullOrWhiteSpace(body.Token))
+            {
+                tokenToValidate = body.Token.Trim();
+            }
+            else
+            {
+                // fallback to Authorization header
+                var authHeader = Request.Headers["Authorization"].ToString();
+                if (!string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    tokenToValidate = authHeader.Substring("Bearer ".Length).Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(tokenToValidate)) return Unauthorized(new { error = "No token provided" });
+
+            try
+            {
+                var key = _config["Jwt:Key"] ?? "very_secret_key_please_change";
+                var issuer = _config["Jwt:Issuer"] ?? "TaxiApi";
+
+                // derive 256-bit key same as JwtTokenService
+                var keyBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key));
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = issuer,
+                    ValidateAudience = false,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
+
+                var handler = new JwtSecurityTokenHandler();
+                var principal = handler.ValidateToken(tokenToValidate, validationParameters, out var validatedToken);
+
+                // extract subject claim (user id)
+                var sub = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                          ?? principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(sub, out var userId)) return Unauthorized(new { error = "Invalid subject in token" });
+
+                var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
+                if (user == null) return Unauthorized(new { error = "No driver user for token subject" });
+
+                // Issue a fresh token
+                var newToken = _tokenService.GenerateToken(user);
+                return Ok(new AuthResponse(newToken, string.Empty));
+            }
+            catch (Microsoft.IdentityModel.Tokens.SecurityTokenExpiredException)
+            {
+                return Unauthorized(new { error = "Token expired" });
+            }
+            catch (Microsoft.IdentityModel.Tokens.SecurityTokenInvalidSignatureException)
+            {
+                return Unauthorized(new { error = "Invalid token signature" });
+            }
+            catch (Microsoft.IdentityModel.Tokens.SecurityTokenException ex)
+            {
+                return Unauthorized(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                // log exception
+                try { var logger = HttpContext.RequestServices.GetService(typeof(ILogger<DriverAuthController>)) as ILogger; logger?.LogError(ex, "Unexpected error validating token"); } catch { }
+                return StatusCode(500, new { error = "Internal server error" });
+            }
+        }
+
+        [Authorize]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            // Extract user id from token
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
+            if (user == null) return Unauthorized();
+
+            try
+            {
+                var now = DateTime.UtcNow;
+                // expire all auth sessions for this user's phone
+                var sessions = await _db.AuthSessions.Where(s => s.Phone == user.Phone && s.ExpiresAt > now).ToListAsync();
+                foreach (var s in sessions)
+                {
+                    s.ExpiresAt = now;
+                    s.Verified = false;
+                }
+
+                await _db.SaveChangesAsync();
+            }
+            catch
+            {
+                // swallow errors but return success to client
+            }
+
+            return Ok(new { loggedOut = true });
         }
 
         [HttpPost("auth")]
@@ -134,25 +270,6 @@ namespace Taxi_API.Controllers
 
             var token = _tokenService.GenerateToken(user);
             return Ok(new AuthResponse(token, session.Id.ToString()));
-        }
-
-        [Authorize]
-        [HttpPost("login")]
-        public async Task<IActionResult> Login([FromBody] object? body)
-        {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
-            if (user == null) return Unauthorized();
-            var token = _tokenService.GenerateToken(user);
-            return Ok(new AuthResponse(token, string.Empty));
-        }
-
-        [Authorize]
-        [HttpPost("logout")]
-        public IActionResult Logout()
-        {
-            return Ok(new { LoggedOut = true });
         }
     }
 }
