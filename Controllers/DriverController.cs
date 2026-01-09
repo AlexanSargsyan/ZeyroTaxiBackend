@@ -222,5 +222,40 @@ namespace Taxi_API.Controllers
 
             return Ok(profileDto);
         }
+
+        [Authorize]
+        [HttpPatch("location")]
+        public async Task<IActionResult> UpdateLocation([FromBody] DriverLocationUpdate req)
+        {
+            if (req == null) return BadRequest("Body required");
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var profile = await _db.DriverProfiles.FirstOrDefaultAsync(dp => dp.UserId == userId);
+            if (profile == null) return NotFound("Driver profile not found");
+
+            profile.CurrentLat = req.Lat;
+            profile.CurrentLng = req.Lng;
+            profile.LastLocationAt = DateTime.UtcNow;
+
+            await _db.SaveChangesAsync();
+
+            // notify sockets if socket service available
+            try
+            {
+                var ws = HttpContext.RequestServices.GetService(typeof(ISocketService)) as ISocketService;
+                if (ws != null)
+                {
+                    // broadcast to any listeners (use userId as key)
+                    await ws.NotifyOrderEventAsync(Guid.Empty, "driverLocation", new { driverId = userId, lat = req.Lat, lng = req.Lng });
+                }
+            }
+            catch { }
+
+            return Ok(new { ok = true });
+        }
+
+        public record DriverLocationUpdate(double Lat, double Lng);
     }
 }

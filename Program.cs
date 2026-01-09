@@ -59,7 +59,11 @@ builder.Services
     });
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    // Order operations by relative path (alphabetical) so auth appears before login
+    c.OrderActionsBy(apiDesc => apiDesc.RelativePath);
+});
 
 var app = builder.Build();
 

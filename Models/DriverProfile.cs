@@ -28,5 +28,10 @@ namespace Taxi_API.Models
         public string? CarColor { get; set; }
         public string? CarPlate { get; set; }
         public int? CarYear { get; set; }
+
+        // Current location (for driver tracking)
+        public double? CurrentLat { get; set; }
+        public double? CurrentLng { get; set; }
+        public DateTime? LastLocationAt { get; set; }
     }
 }
