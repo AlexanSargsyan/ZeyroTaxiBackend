@@ -213,22 +213,50 @@ namespace Taxi_API.Controllers
             }
         }
 
-        [Authorize]
         [HttpPost("logout")]
-        public async Task<IActionResult> Logout()
+        public async Task<IActionResult> Logout([FromBody] AuthTokenRequest? body)
         {
-            // Extract user id from token
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
-                            ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            // allow token via body or Authorization header
+            string? tokenToValidate = null;
+            if (body != null && !string.IsNullOrWhiteSpace(body.Token)) tokenToValidate = body.Token.Trim();
+            else
+            {
+                var authHeader = Request.Headers["Authorization"].ToString();
+                if (!string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer "))
+                {
+                    tokenToValidate = authHeader.Substring("Bearer ".Length).Trim();
+                }
+            }
 
-            var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
-            if (user == null) return Unauthorized();
+            if (string.IsNullOrWhiteSpace(tokenToValidate)) return Unauthorized(new { error = "No token provided" });
 
             try
             {
+                var key = _config["Jwt:Key"] ?? "very_secret_key_please_change";
+                var issuer = _config["Jwt:Issuer"] ?? "TaxiApi";
+                var keyBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(key));
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = issuer,
+                    ValidateAudience = false,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                };
+
+                var handler = new JwtSecurityTokenHandler();
+                var principal = handler.ValidateToken(tokenToValidate, validationParameters, out var validatedToken);
+
+                var sub = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                          ?? principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                if (!Guid.TryParse(sub, out var userId)) return Unauthorized(new { error = "Invalid subject in token" });
+
+                var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
+                if (user == null) return Unauthorized(new { error = "No driver user for token subject" });
+
                 var now = DateTime.UtcNow;
-                // expire all auth sessions for this user's phone
                 var sessions = await _db.AuthSessions.Where(s => s.Phone == user.Phone && s.ExpiresAt > now).ToListAsync();
                 foreach (var s in sessions)
                 {
@@ -237,13 +265,23 @@ namespace Taxi_API.Controllers
                 }
 
                 await _db.SaveChangesAsync();
-            }
-            catch
-            {
-                // swallow errors but return success to client
-            }
 
-            return Ok(new { loggedOut = true });
+                return Ok(new { loggedOut = true });
+            }
+            catch (Microsoft.IdentityModel.Tokens.SecurityTokenExpiredException)
+            {
+                return Unauthorized(new { error = "Token expired" });
+            }
+            catch (Microsoft.IdentityModel.Tokens.SecurityTokenException ex)
+            {
+                return Unauthorized(new { error = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                var logger = HttpContext.RequestServices.GetService(typeof(ILogger<DriverAuthController>)) as ILogger<DriverAuthController>;
+                logger?.LogError(ex, "Unexpected error in logout");
+                return StatusCode(500, new { error = "Internal server error" });
+            }
         }
 
         [HttpPost("auth")]
