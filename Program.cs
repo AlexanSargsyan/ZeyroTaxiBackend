@@ -126,15 +126,46 @@ app.MapControllers();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
         db.Database.Migrate();
+
+        // Defensive fallback: ensure AuthSessions table exists (some migration edits may have skipped it)
+        try
+        {
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            await using (conn)
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='AuthSessions';";
+                var res = await cmd.ExecuteScalarAsync();
+                if (res == null || res == DBNull.Value)
+                {
+                    logger.LogInformation("AuthSessions table missing — creating it as a fallback.");
+                    var createSql = @"CREATE TABLE IF NOT EXISTS AuthSessions (
+                        Id TEXT PRIMARY KEY,
+                        Phone TEXT NOT NULL,
+                        Code TEXT NOT NULL,
+                        Verified INTEGER NOT NULL,
+                        CreatedAt TEXT NOT NULL,
+                        ExpiresAt TEXT NOT NULL
+                    );";
+                    using var createCmd = conn.CreateCommand();
+                    createCmd.CommandText = createSql;
+                    await createCmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to verify/create AuthSessions table fallback");
+        }
     }
     catch (Exception ex)
     {
-        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         logger.LogError(ex, "Failed to apply database migrations at startup. Ensure migrations are created and the process has write access to the database file.");
-        // rethrow to fail fast if desired, or swallow to allow app to continue
         throw;
     }
 }
