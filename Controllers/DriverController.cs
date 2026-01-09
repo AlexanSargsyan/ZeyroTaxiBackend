@@ -168,5 +168,59 @@ namespace Taxi_API.Controllers
                 carOk = profile.CarOk
             });
         }
+
+        [Authorize]
+        [HttpGet("profile")]
+        public async Task<IActionResult> GetProfile()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users
+                .Include(u => u.DriverProfile)
+                    .ThenInclude(dp => dp.Photos)
+                .Include(u => u.Orders)
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null) return NotFound();
+
+            var driverProfile = user.DriverProfile;
+
+            var profileDto = new
+            {
+                id = user.Id,
+                phone = user.Phone,
+                name = user.Name,
+                isDriver = user.IsDriver,
+                phoneVerified = user.PhoneVerified,
+                createdAt = user.CreatedAt,
+                driverProfile = driverProfile == null ? null : new
+                {
+                    id = driverProfile.Id,
+                    approved = driverProfile.Approved,
+                    submittedAt = driverProfile.SubmittedAt,
+                    faceMatch = driverProfile.FaceMatch,
+                    carOk = driverProfile.CarOk,
+                    carMake = driverProfile.CarMake,
+                    carModel = driverProfile.CarModel,
+                    carColor = driverProfile.CarColor,
+                    carPlate = driverProfile.CarPlate,
+                    carYear = driverProfile.CarYear,
+                    photos = driverProfile.Photos.Select(p => new { id = p.Id, path = p.Path, type = p.Type, uploadedAt = p.UploadedAt }).ToArray()
+                },
+                recentOrders = user.Orders.OrderByDescending(o => o.CreatedAt).Take(20).Select(o => new
+                {
+                    id = o.Id,
+                    action = o.Action,
+                    status = o.Status,
+                    pickup = o.Pickup,
+                    destination = o.Destination,
+                    price = o.Price,
+                    createdAt = o.CreatedAt
+                }).ToArray()
+            };
+
+            return Ok(profileDto);
+        }
     }
 }
