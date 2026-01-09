@@ -105,5 +105,29 @@ namespace Taxi_API.Controllers
 
             return Ok(new { transcription = text, intent, reply, order = created });
         }
+
+        // New translate endpoint
+        public record TranslateRequest(string Text, string To, string? From = null);
+
+        [HttpPost("translate")]
+        [Authorize]
+        public async Task<IActionResult> Translate([FromBody] TranslateRequest req)
+        {
+            if (req == null || string.IsNullOrWhiteSpace(req.Text) || string.IsNullOrWhiteSpace(req.To))
+                return BadRequest("Text and To language are required");
+
+            var from = string.IsNullOrWhiteSpace(req.From) ? "auto" : req.From;
+            var to = req.To;
+
+            // Build prompt for translation
+            var prompt = from == "auto"
+                ? $"Translate the following text to {to} concisely, preserve meaning and do not add commentary. Text:\n{req.Text}"
+                : $"Translate the following text from {from} to {to} concisely, preserve meaning and do not add commentary. Text:\n{req.Text}";
+
+            var translation = await _openAi.ChatAsync(prompt, to);
+            if (translation == null) return StatusCode(502, "Translation failed");
+
+            return Ok(new { text = req.Text, translation });
+        }
     }
 }
