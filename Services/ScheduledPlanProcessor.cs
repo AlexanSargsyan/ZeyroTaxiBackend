@@ -50,6 +50,7 @@ namespace Taxi_API.Services
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var fcm = scope.ServiceProvider.GetService<IFcmService>();
 
             // Defensive: check if ScheduledPlans table exists (handles DB files created before this model was added)
             try
@@ -151,6 +152,23 @@ namespace Taxi_API.Services
                     // notify via socket
                     await _socketService.NotifyOrderEventAsync(order.Id, "carFinding", new { status = "searching" });
 
+                    // send push notification to user if token available
+                    try
+                    {
+                        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == plan.UserId);
+                        if (user != null && !string.IsNullOrWhiteSpace(user.PushToken) && fcm != null)
+                        {
+                            await fcm.SendPushAsync(user.PushToken, "Scheduled ride created", $"Your scheduled ride for {next:yyyy-MM-dd HH:mm} has been created.", new Dictionary<string, string> { { "orderId", order.Id.ToString() } });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to send FCM for scheduled order");
+                    }
+
+                    // notify via socket
+                    await _socketService.NotifyOrderEventAsync(order.Id, "carFinding", new { status = "searching" });
+
                     // try assign driver
                     var driver = await db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null, ct);
                     if (driver != null)
@@ -165,8 +183,40 @@ namespace Taxi_API.Services
                         await db.SaveChangesAsync(ct);
 
                         await _socketService.NotifyOrderEventAsync(order.Id, "carFound", new { driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone } });
+
+                        // send push to user about driver assigned
+                        try
+                        {
+                            var user2 = await db.Users.FirstOrDefaultAsync(u => u.Id == plan.UserId);
+                            if (user2 != null && !string.IsNullOrWhiteSpace(user2.PushToken) && fcm != null)
+                            {
+                                await fcm.SendPushAsync(user2.PushToken, "Driver assigned", $"Driver {driver.Name} ({driver.Phone}) has been assigned to your scheduled ride.", new Dictionary<string, string> { { "orderId", order.Id.ToString() } });
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to send FCM for assigned driver");
+                        }
                     }
                 }
+            }
+
+            // additionally: send reminder for completed orders or other scheduled notifications (example)
+            try
+            {
+                var recentlyCompleted = await db.Orders.Where(o => o.CompletedAt.HasValue && o.CompletedAt.Value > DateTime.UtcNow.AddMinutes(-5)).ToListAsync();
+                foreach (var oc in recentlyCompleted)
+                {
+                    var usr = await db.Users.FirstOrDefaultAsync(u => u.Id == oc.UserId);
+                    if (usr != null && !string.IsNullOrWhiteSpace(usr.PushToken) && fcm != null)
+                    {
+                        await fcm.SendPushAsync(usr.PushToken, "Ride completed", $"Your ride {oc.Id} was completed.", new Dictionary<string, string> { { "orderId", oc.Id.ToString() } });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to send FCM for completed orders");
             }
         }
 

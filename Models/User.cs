@@ -22,5 +22,8 @@ namespace Taxi_API.Models
         public List<Order> Orders { get; set; } = new();
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // Optional FCM push token for notifications
+        public string? PushToken { get; set; }
     }
 }
