@@ -418,5 +418,48 @@ namespace Taxi_API.Controllers
 
             return Ok(new { total, page, pageSize, items });
         }
+
+        [Authorize]
+        [HttpGet("reviews")]
+        public async Task<IActionResult> GetReviews([FromQuery] Guid? driverId = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] int? minRating = null)
+        {
+            if (page < 1) page = 1;
+            if (pageSize < 1) pageSize = 20;
+
+            IQueryable<Order> q = _db.Orders.Where(o => o.Rating.HasValue && !string.IsNullOrEmpty(o.Review));
+
+            if (driverId.HasValue)
+            {
+                q = q.Where(o => o.DriverId == driverId.Value);
+            }
+
+            if (minRating.HasValue)
+            {
+                q = q.Where(o => o.Rating >= minRating.Value);
+            }
+
+            var total = await q.CountAsync();
+
+            var items = await q
+                .OrderByDescending(o => o.CreatedAt)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(o => new
+                {
+                    orderId = o.Id,
+                    rating = o.Rating,
+                    review = o.Review,
+                    createdAt = o.CreatedAt,
+                    driverId = o.DriverId,
+                    driverName = o.DriverName,
+                    userId = o.UserId,
+                    userName = o.User != null ? o.User.Name : null,
+                    price = o.Price,
+                    vehicleType = o.VehicleType
+                })
+                .ToListAsync();
+
+            return Ok(new { total, page, pageSize, items });
+        }
     }
 }
