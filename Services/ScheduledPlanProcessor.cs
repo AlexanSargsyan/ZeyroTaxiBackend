@@ -216,7 +216,7 @@ namespace Taxi_API.Services
                         var exists = await checkCmd.ExecuteScalarAsync(ct);
                         if (exists == null || exists == DBNull.Value)
                         {
-                            _logger.LogInformation("ScheduledPlanProcessor: Orders table not found, skipping completed orders notifications.");
+                            _logger.LogDebug("ScheduledPlanProcessor: Orders table not found, skipping completed orders notifications.");
                             goto SkipCompletedNotifications;
                         }
                     }

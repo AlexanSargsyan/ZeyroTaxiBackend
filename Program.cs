@@ -69,6 +69,9 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Run migrations before hosted services start
+await EnsureDatabaseMigratedAsync(app.Services, app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Program"));
+
 // REQUIRED for ALB / reverse proxy
 app.UseForwardedHeaders(new ForwardedHeadersOptions
 {
@@ -130,16 +133,20 @@ app.Map("/ws", async context =>
 
 app.MapControllers();
 
-// Apply EF Core migrations (recommended) so DB schema is updated when the app starts.
-using (var scope = app.Services.CreateScope())
+app.Run();
+
+// Helper to ensure DB schema exists and apply migrations; runs before hosted services start
+static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger logger)
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        db.Database.Migrate();
+        using var scope = services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // Defensive fallback: ensure AuthSessions table exists (some migration edits may have skipped it)
+        logger.LogInformation("Applying database migrations...");
+        await db.Database.MigrateAsync();
+
+        // Defensive fallback: ensure AuthSessions table exists
         try
         {
             var conn = db.Database.GetDbConnection();
@@ -171,7 +178,7 @@ using (var scope = app.Services.CreateScope())
             logger.LogWarning(ex, "Failed to verify/create AuthSessions table fallback");
         }
 
-        // Defensive: ensure Users table has PhoneVerified column (DB may be older)
+        // Defensive: ensure Users table has PhoneVerified column
         try
         {
             var conn2 = db.Database.GetDbConnection();
@@ -194,12 +201,14 @@ using (var scope = app.Services.CreateScope())
         {
             logger.LogWarning(ex, "Failed to verify/create Users.PhoneVerified column fallback");
         }
+
+        logger.LogInformation("Database migrations applied or verified");
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to apply database migrations at startup. Ensure migrations are created and the process has write access to the database file.");
+        var loggerFactory = services.GetService<ILoggerFactory>();
+        var lg = loggerFactory?.CreateLogger("EnsureDatabaseMigratedAsync");
+        lg?.LogError(ex, "Failed to apply database migrations at startup. Ensure migrations are created and the process has write access to the database file.");
         throw;
     }
 }
-
-app.Run();
