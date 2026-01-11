@@ -12,6 +12,7 @@ namespace Taxi_API.Data
         public DbSet<Photo> Photos => Set<Photo>();
         public DbSet<AuthSession> AuthSessions => Set<AuthSession>();
         public DbSet<Order> Orders => Set<Order>();
+        public DbSet<PaymentCard> PaymentCards => Set<PaymentCard>();
         public DbSet<ScheduledPlan> ScheduledPlans => Set<ScheduledPlan>();
         public DbSet<ScheduledPlanExecution> ScheduledPlanExecutions => Set<ScheduledPlanExecution>();
 
@@ -48,6 +49,10 @@ namespace Taxi_API.Data
                 .WithMany() // no navigation property on User for driven orders
                 .HasForeignKey(o => o.DriverId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PaymentCard>()
+                .HasKey(pc => pc.Id);
+            modelBuilder.Entity<PaymentCard>().HasIndex(pc => new { pc.UserId, pc.Last4 });
 
             modelBuilder.Entity<ScheduledPlan>()
                 .HasKey(s => s.Id);

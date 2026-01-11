@@ -36,6 +36,7 @@ builder.Services.AddSingleton<ISocketService, WebSocketService>();
 // Background processor for scheduled plans
 builder.Services.AddHostedService<ScheduledPlanProcessor>();
 builder.Services.AddSingleton<IFcmService, FcmService>();
+builder.Services.AddScoped<IPaymentService, StripePaymentService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";

@@ -204,6 +204,29 @@ namespace Taxi_API.Services
             // additionally: send reminder for completed orders or other scheduled notifications (example)
             try
             {
+                // Defensive: ensure Orders table exists before querying
+                try
+                {
+                    var conn3 = db.Database.GetDbConnection();
+                    await conn3.OpenAsync(ct);
+                    await using (conn3)
+                    {
+                        using var checkCmd = conn3.CreateCommand();
+                        checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='Orders';";
+                        var exists = await checkCmd.ExecuteScalarAsync(ct);
+                        if (exists == null || exists == DBNull.Value)
+                        {
+                            _logger.LogInformation("ScheduledPlanProcessor: Orders table not found, skipping completed orders notifications.");
+                            goto SkipCompletedNotifications;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "ScheduledPlanProcessor: Failed to verify Orders table existence, skipping completed orders notifications.");
+                    goto SkipCompletedNotifications;
+                }
+
                 var recentlyCompleted = await db.Orders.Where(o => o.CompletedAt.HasValue && o.CompletedAt.Value > DateTime.UtcNow.AddMinutes(-5)).ToListAsync();
                 foreach (var oc in recentlyCompleted)
                 {
@@ -218,6 +241,8 @@ namespace Taxi_API.Services
             {
                 _logger.LogWarning(ex, "Failed to send FCM for completed orders");
             }
+
+        SkipCompletedNotifications: ;
         }
 
         private static DateTime NextOccurrenceUtc(DayOfWeek day, TimeSpan timeOfDay, DateTime now)
