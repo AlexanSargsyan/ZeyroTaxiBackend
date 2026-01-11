@@ -59,6 +59,29 @@ namespace Taxi_API.Controllers
             return Ok(cards);
         }
 
+        public record CreatePaymentIntentRequest(decimal Amount, string Currency);
+        public record CreatePaymentIntentResponse(string ClientSecret);
+
+        [Authorize]
+        [HttpPost("payment-intent")]
+        public async Task<IActionResult> CreatePaymentIntent([FromBody] CreatePaymentIntentRequest req)
+        {
+            if (req == null || req.Amount <= 0) return BadRequest("Amount required");
+            var amountCents = (long)(req.Amount * 100);
+            var clientSecret = await _payments.CreatePaymentIntentAsync(amountCents, req.Currency ?? "usd");
+            if (clientSecret == null) return StatusCode(502, "Payment provider error");
+            return Ok(new CreatePaymentIntentResponse(clientSecret));
+        }
+
+        public record ConfirmPaymentRequest(string PaymentIntentId, string PaymentMethodId);
+        [Authorize]
+        [HttpPost("confirm")]
+        public async Task<IActionResult> ConfirmPayment([FromBody] ConfirmPaymentRequest req)
+        {
+            // In production confirm via Stripe SDK or rely on client-side Elements to confirm using client_secret.
+            return Ok(new { ok = true });
+        }
+
         public record ChargeRequest(decimal Amount, string Currency);
 
         [Authorize]

@@ -35,5 +35,17 @@ namespace Taxi_API.Services
             _logger.LogInformation("Refund called (stub) charge={chargeId}", chargeId);
             await Task.Delay(10);
         }
+
+        public async Task<string?> CreatePaymentIntentAsync(long amountCents, string currency = "usd", string? customerId = null)
+        {
+            _logger.LogInformation("CreatePaymentIntentAsync called (stub) amount={amount} currency={currency}", amountCents, currency);
+            // In production use Stripe SDK:
+            // var options = new PaymentIntentCreateOptions { Amount = amountCents, Currency = currency, Customer = customerId, PaymentMethodTypes = new List<string> { "card" } };
+            // var service = new PaymentIntentService();
+            // var intent = await service.CreateAsync(options);
+            // return intent.ClientSecret;
+            await Task.Delay(10);
+            return "pi_client_secret_placeholder_" + Guid.NewGuid().ToString("N");
+        }
     }
 }

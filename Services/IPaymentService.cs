@@ -10,5 +10,8 @@ namespace Taxi_API.Services
 
         // Refund a charge
         Task RefundAsync(string chargeId);
+
+        // Create a PaymentIntent (for Stripe Elements / Payment Intents flow). Returns client_secret.
+        Task<string?> CreatePaymentIntentAsync(long amountCents, string currency = "usd", string? customerId = null);
     }
 }
