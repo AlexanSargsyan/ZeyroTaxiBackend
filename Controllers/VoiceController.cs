@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Taxi_API.Services;
 using Taxi_API.Data;
@@ -107,7 +107,7 @@ namespace Taxi_API.Controllers
         }
 
         // New translate endpoint
-        public record TranslateRequest(string Text, string To, string? From = null);
+        public record TranslateRequest(string Text, string To, string? From = null, bool Audio = false, string? Voice = null);
 
         [HttpPost("translate")]
         [Authorize]
@@ -116,8 +116,23 @@ namespace Taxi_API.Controllers
             if (req == null || string.IsNullOrWhiteSpace(req.Text) || string.IsNullOrWhiteSpace(req.To))
                 return BadRequest("Text and To language are required");
 
-            var from = string.IsNullOrWhiteSpace(req.From) ? "auto" : req.From;
-            var to = req.To;
+            // Normalize language codes and allow common synonyms
+            string NormalizeLang(string l)
+            {
+                if (string.IsNullOrWhiteSpace(l)) return string.Empty;
+                var s = l.Trim().ToLowerInvariant();
+                return s switch
+                {
+                    "hy" or "armenian" or "arm" => "hy",
+                    "ru" or "rus" or "russian" => "ru",
+                    "en" or "eng" or "english" => "en",
+                    _ => string.Empty
+                };
+            }
+
+            var from = string.IsNullOrWhiteSpace(req.From) ? "auto" : NormalizeLang(req.From) ?? "auto";
+            var to = NormalizeLang(req.To);
+            if (string.IsNullOrEmpty(to)) return BadRequest("Unsupported target language. Supported: hy, ru, en");
 
             // Build prompt for translation
             var prompt = from == "auto"
@@ -126,6 +141,14 @@ namespace Taxi_API.Controllers
 
             var translation = await _openAi.ChatAsync(prompt, to);
             if (translation == null) return StatusCode(502, "Translation failed");
+
+            if (req.Audio)
+            {
+                // synthesize TTS in target language
+                var audioBytes = await _openAi.SynthesizeSpeechAsync(translation, to, req.Voice);
+                if (audioBytes == null) return StatusCode(502, "TTS failed");
+                return File(audioBytes, "audio/wav", "translation.wav");
+            }
 
             return Ok(new { text = req.Text, translation });
         }
@@ -146,9 +169,9 @@ namespace Taxi_API.Controllers
             var lower = text.ToLowerInvariant();
             string intent = "chat";
 
-            var taxiKeywords = new[] { "taxi", "????", "?????" };
-            var deliveryKeywords = new[] { "delivery", "?????", "????????" };
-            var scheduleKeywords = new[] { "schedule", "???", "??????????" };
+            var taxiKeywords = new[] { "taxi", "պտի՞", "такси" };
+            var deliveryKeywords = new[] { "delivery", "բերել", "доставка" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
