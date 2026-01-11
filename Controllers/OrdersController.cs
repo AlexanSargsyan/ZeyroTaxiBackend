@@ -461,5 +461,105 @@ namespace Taxi_API.Controllers
 
             return Ok(new { total, page, pageSize, items });
         }
+
+        [Authorize]
+        [HttpPost("map/receive/{id}")]
+        public async Task<IActionResult> MapReceive(Guid id)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
+            if (order == null) return NotFound();
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            // mark driver for this order
+            order.DriverId = userId;
+            var driver = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (driver != null)
+            {
+                order.DriverName = driver.Name;
+                order.DriverPhone = driver.Phone;
+            }
+            order.Status = "assigned";
+            await _db.SaveChangesAsync();
+
+            await _socketService.NotifyOrderEventAsync(order.Id, "receiveOrder", new { driverId = userId, driverName = order.DriverName });
+            return Ok(order);
+        }
+
+        [Authorize]
+        [HttpPost("map/arrive/{id}")]
+        public async Task<IActionResult> MapArrive(Guid id)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
+            if (order == null) return NotFound();
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            if (order.DriverId != userId) return Forbid();
+
+            // send arrive event (status remains assigned until start)
+            await _socketService.NotifyOrderEventAsync(order.Id, "arrive", new { driverId = userId, driverName = order.DriverName });
+            return Ok(new { ok = true });
+        }
+
+        [Authorize]
+        [HttpPost("map/start/{id}")]
+        public async Task<IActionResult> MapStart(Guid id)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
+            if (order == null) return NotFound();
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            if (order.DriverId != userId) return Forbid();
+
+            order.Status = "on_trip";
+            await _db.SaveChangesAsync();
+
+            await _socketService.NotifyOrderEventAsync(order.Id, "start", new { driverId = userId, driverName = order.DriverName });
+            return Ok(order);
+        }
+
+        [Authorize]
+        [HttpPost("map/complete/{id}")]
+        public async Task<IActionResult> MapComplete(Guid id)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
+            if (order == null) return NotFound();
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            if (order.DriverId != userId) return Forbid();
+
+            order.Status = "completed";
+            order.CompletedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            await _socketService.NotifyOrderEventAsync(order.Id, "complete", new { driverId = userId, driverName = order.DriverName });
+            return Ok(order);
+        }
+
+        [Authorize]
+        [HttpPost("map/cancel/{id}")]
+        public async Task<IActionResult> MapCancel(Guid id, [FromBody] string? reason)
+        {
+            var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
+            if (order == null) return NotFound();
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            // allow driver or rider to cancel
+            if (order.UserId != userId && order.DriverId != userId) return Forbid();
+
+            order.Status = "cancelled";
+            order.CancelledAt = DateTime.UtcNow;
+            order.CancelReason = reason;
+            await _db.SaveChangesAsync();
+
+            await _socketService.NotifyOrderEventAsync(order.Id, "cancelOrder", new { by = userId, reason });
+            return Ok(order);
+        }
     }
 }
