@@ -32,6 +32,18 @@ namespace Taxi_API.Models
         // Stripe Connect account id for payouts
         public string? StripeAccountId { get; set; }
 
+        // Passport details
+        public string? PassportNumber { get; set; }
+        public string? PassportName { get; set; }
+        public DateTime? PassportExpiry { get; set; }
+        public string? PassportCountry { get; set; }
+
+        // Driving license details
+        public string? LicenseNumber { get; set; }
+        public string? LicenseName { get; set; }
+        public DateTime? LicenseExpiry { get; set; }
+        public string? LicenseIssuingCountry { get; set; }
+
         // Current location (for driver tracking)
         public double? CurrentLat { get; set; }
         public double? CurrentLng { get; set; }

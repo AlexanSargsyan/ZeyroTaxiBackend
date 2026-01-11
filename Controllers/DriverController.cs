@@ -288,5 +288,69 @@ namespace Taxi_API.Controllers
         }
 
         public record DriverLocationUpdate(double Lat, double Lng);
+        public record IdentityRequest(string? PassportNumber, string? PassportName, DateTime? PassportExpiry, string? PassportCountry,
+                                      string? LicenseNumber, string? LicenseName, DateTime? LicenseExpiry, string? LicenseIssuingCountry);
+
+        [Authorize]
+        [HttpGet("identity")]
+        public async Task<IActionResult> GetIdentity()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return NotFound();
+
+            var dp = user.DriverProfile;
+            if (dp == null) return NotFound();
+
+            return Ok(new
+            {
+                passportNumber = dp.PassportNumber,
+                passportName = dp.PassportName,
+                passportExpiry = dp.PassportExpiry,
+                passportCountry = dp.PassportCountry,
+                licenseNumber = dp.LicenseNumber,
+                licenseName = dp.LicenseName,
+                licenseExpiry = dp.LicenseExpiry,
+                licenseIssuingCountry = dp.LicenseIssuingCountry,
+                photos = dp.Photos.Select(p => new { id = p.Id, path = p.Path, type = p.Type, uploadedAt = p.UploadedAt })
+            });
+        }
+
+        [Authorize]
+        [HttpPatch("identity")]
+        public async Task<IActionResult> UpdateIdentity([FromBody] IdentityRequest req)
+        {
+            if (req == null) return BadRequest("Body required");
+
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users.Include(u => u.DriverProfile).FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return NotFound();
+
+            if (user.DriverProfile == null)
+            {
+                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                _db.DriverProfiles.Add(user.DriverProfile);
+            }
+
+            var dp = user.DriverProfile;
+
+            dp.PassportNumber = string.IsNullOrWhiteSpace(req.PassportNumber) ? dp.PassportNumber : req.PassportNumber;
+            dp.PassportName = string.IsNullOrWhiteSpace(req.PassportName) ? dp.PassportName : req.PassportName;
+            dp.PassportExpiry = req.PassportExpiry ?? dp.PassportExpiry;
+            dp.PassportCountry = string.IsNullOrWhiteSpace(req.PassportCountry) ? dp.PassportCountry : req.PassportCountry;
+
+            dp.LicenseNumber = string.IsNullOrWhiteSpace(req.LicenseNumber) ? dp.LicenseNumber : req.LicenseNumber;
+            dp.LicenseName = string.IsNullOrWhiteSpace(req.LicenseName) ? dp.LicenseName : req.LicenseName;
+            dp.LicenseExpiry = req.LicenseExpiry ?? dp.LicenseExpiry;
+            dp.LicenseIssuingCountry = string.IsNullOrWhiteSpace(req.LicenseIssuingCountry) ? dp.LicenseIssuingCountry : req.LicenseIssuingCountry;
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new { ok = true });
+        }
     }
 }
