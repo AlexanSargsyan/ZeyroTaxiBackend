@@ -47,5 +47,17 @@ namespace Taxi_API.Services
             await Task.Delay(10);
             return "pi_client_secret_placeholder_" + Guid.NewGuid().ToString("N");
         }
+
+        public async Task<string?> TransferToDriverAsync(long amountCents, string driverAccountId, string currency = "usd")
+        {
+            _logger.LogInformation("TransferToDriverAsync called (stub) amount={amount} driverAccount={driver}", amountCents, driverAccountId);
+            // In production use Stripe Connect transfers:
+            // var options = new TransferCreateOptions { Amount = amountCents, Currency = currency, Destination = driverAccountId };
+            // var service = new TransferService();
+            // var transfer = await service.CreateAsync(options);
+            // return transfer.Id;
+            await Task.Delay(10);
+            return "tr_" + Guid.NewGuid().ToString("N");
+        }
     }
 }

@@ -13,5 +13,8 @@ namespace Taxi_API.Services
 
         // Create a PaymentIntent (for Stripe Elements / Payment Intents flow). Returns client_secret.
         Task<string?> CreatePaymentIntentAsync(long amountCents, string currency = "usd", string? customerId = null);
+
+        // Transfer (payout) funds to a driver's connected account (instant/fast payout). Returns transfer id
+        Task<string?> TransferToDriverAsync(long amountCents, string driverAccountId, string currency = "usd");
     }
 }
