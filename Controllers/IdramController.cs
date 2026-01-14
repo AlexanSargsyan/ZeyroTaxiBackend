@@ -93,69 +93,79 @@ namespace Taxi_API.Controllers
         /// </summary>
         [HttpPost("result")]
         [Consumes("application/x-www-form-urlencoded")]
-        public async Task<IActionResult> HandleResult([FromForm] IdramPrecheckRequest precheck, 
-            [FromForm] IdramPaymentConfirmation confirmation)
+        public async Task<IActionResult> HandleResult()
         {
+            // Read form data manually to avoid duplicate key issues in Swagger
+            var form = await Request.ReadFormAsync();
+            
+            var precheck = form["EDP_PRECHECK"].ToString();
+            var billNo = form["EDP_BILL_NO"].ToString();
+            var recAccount = form["EDP_REC_ACCOUNT"].ToString();
+            var amount = form["EDP_AMOUNT"].ToString();
+
             // Check if this is a preliminary check
-            if (!string.IsNullOrWhiteSpace(precheck.EDP_PRECHECK) && 
-                precheck.EDP_PRECHECK.Equals("YES", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(precheck) && 
+                precheck.Equals("YES", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogInformation("Idram precheck: billNo={billNo}, amount={amount}, recAccount={recAccount}",
-                    precheck.EDP_BILL_NO, precheck.EDP_AMOUNT, precheck.EDP_REC_ACCOUNT);
+                    billNo, amount, recAccount);
 
                 // Validate order authenticity
-                var isValid = _idramService.ValidateOrderPrecheck(
-                    precheck.EDP_BILL_NO,
-                    precheck.EDP_REC_ACCOUNT,
-                    precheck.EDP_AMOUNT);
+                var isValid = _idramService.ValidateOrderPrecheck(billNo, recAccount, amount);
 
                 if (!isValid)
                 {
-                    _logger.LogWarning("Idram precheck failed for bill {billNo}", precheck.EDP_BILL_NO);
+                    _logger.LogWarning("Idram precheck failed for bill {billNo}", billNo);
                     return Content("FAIL");
                 }
 
                 // Check if payment exists in database
                 var payment = await _db.IdramPayments
-                    .FirstOrDefaultAsync(p => p.BillNo == precheck.EDP_BILL_NO);
+                    .FirstOrDefaultAsync(p => p.BillNo == billNo);
 
                 if (payment == null)
                 {
-                    _logger.LogWarning("Payment not found for bill {billNo}", precheck.EDP_BILL_NO);
+                    _logger.LogWarning("Payment not found for bill {billNo}", billNo);
                     return Content("FAIL");
                 }
 
                 // Validate amount matches
-                if (decimal.Parse(precheck.EDP_AMOUNT) != payment.Amount)
+                if (decimal.TryParse(amount, out var parsedAmount) && parsedAmount != payment.Amount)
                 {
                     _logger.LogWarning("Amount mismatch for bill {billNo}. Expected: {expected}, Got: {actual}",
-                        precheck.EDP_BILL_NO, payment.Amount, precheck.EDP_AMOUNT);
+                        billNo, payment.Amount, amount);
                     return Content("FAIL");
                 }
 
-                _logger.LogInformation("Idram precheck successful for bill {billNo}", precheck.EDP_BILL_NO);
+                _logger.LogInformation("Idram precheck successful for bill {billNo}", billNo);
                 return Content("OK");
             }
 
             // Payment confirmation
-            if (!string.IsNullOrWhiteSpace(confirmation.EDP_TRANS_ID))
+            var transId = form["EDP_TRANS_ID"].ToString();
+            
+            if (!string.IsNullOrWhiteSpace(transId))
             {
+                var payerAccount = form["EDP_PAYER_ACCOUNT"].ToString();
+                var transDate = form["EDP_TRANS_DATE"].ToString();
+                var checksum = form["EDP_CHECKSUM"].ToString();
+
                 _logger.LogInformation("Idram payment confirmation: transId={transId}, billNo={billNo}, amount={amount}",
-                    confirmation.EDP_TRANS_ID, confirmation.EDP_BILL_NO, confirmation.EDP_AMOUNT);
+                    transId, billNo, amount);
 
                 // Validate checksum
                 var isValid = _idramService.ValidateChecksum(
-                    confirmation.EDP_REC_ACCOUNT,
-                    confirmation.EDP_AMOUNT,
-                    confirmation.EDP_BILL_NO,
-                    confirmation.EDP_PAYER_ACCOUNT,
-                    confirmation.EDP_TRANS_ID,
-                    confirmation.EDP_TRANS_DATE,
-                    confirmation.EDP_CHECKSUM);
+                    recAccount,
+                    amount,
+                    billNo,
+                    payerAccount,
+                    transId,
+                    transDate,
+                    checksum);
 
                 if (!isValid)
                 {
-                    _logger.LogError("Idram checksum validation failed for transaction {transId}", confirmation.EDP_TRANS_ID);
+                    _logger.LogError("Idram checksum validation failed for transaction {transId}", transId);
                     return Content("FAIL");
                 }
 
@@ -163,24 +173,24 @@ namespace Taxi_API.Controllers
                 try
                 {
                     var payment = await _db.IdramPayments
-                        .FirstOrDefaultAsync(p => p.BillNo == confirmation.EDP_BILL_NO);
+                        .FirstOrDefaultAsync(p => p.BillNo == billNo);
 
                     if (payment == null)
                     {
-                        _logger.LogError("Payment not found for bill {billNo}", confirmation.EDP_BILL_NO);
+                        _logger.LogError("Payment not found for bill {billNo}", billNo);
                         return Content("FAIL");
                     }
 
                     // Update payment record
                     payment.Status = "Success";
-                    payment.PayerAccount = confirmation.EDP_PAYER_ACCOUNT;
-                    payment.TransactionId = confirmation.EDP_TRANS_ID;
-                    payment.TransactionDate = confirmation.EDP_TRANS_DATE;
+                    payment.PayerAccount = payerAccount;
+                    payment.TransactionId = transId;
+                    payment.TransactionDate = transDate;
                     payment.CompletedAt = DateTime.UtcNow;
 
                     await _db.SaveChangesAsync();
 
-                    _logger.LogInformation("Idram payment processed successfully: {transId}", confirmation.EDP_TRANS_ID);
+                    _logger.LogInformation("Idram payment processed successfully: {transId}", transId);
                     return Content("OK");
                 }
                 catch (Exception ex)
