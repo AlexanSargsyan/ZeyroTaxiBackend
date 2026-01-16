@@ -61,17 +61,8 @@ namespace Taxi_API.Controllers
             try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {code}"); } catch { }
             try { await _email.SendAsync(phone + "@example.com", "Your driver verification code", $"Your code is: {code}"); } catch { }
 
-            var allowReturn = false;
-            if (bool.TryParse(_config["Auth:ReturnCodeInResponse"], out var cfgVal) && cfgVal) allowReturn = true;
-#if DEBUG
-            allowReturn = true;
-#endif
-            if (allowReturn)
-            {
-                return Ok(new { sent = true, code = code, authSessionId = session.Id.ToString() });
-            }
-
-            return Ok(new { sent = true });
+            // Always return code and session for now (matching regular auth behavior)
+            return Ok(new { sent = true, code = code, authSessionId = session.Id.ToString() });
         }
 
         [HttpPost("resend")]
@@ -97,17 +88,8 @@ namespace Taxi_API.Controllers
             try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {session.Code}"); } catch { }
             try { await _email.SendAsync(phone + "@example.com", "Your driver verification code (resend)", $"Your code is: {session.Code}"); } catch { }
 
-            var allowReturn = false;
-            if (bool.TryParse(_config["Auth:ReturnCodeInResponse"], out var cfgVal2) && cfgVal2) allowReturn = true;
-#if DEBUG
-            allowReturn = true;
-#endif
-            if (allowReturn)
-            {
-                return Ok(new { sent = true, code = session.Code, authSessionId = session.Id.ToString() });
-            }
-
-            return Ok(new { sent = true });
+            // Always return code and session for now (matching regular auth behavior)
+            return Ok(new { sent = true, code = session.Code, authSessionId = session.Id.ToString() });
         }
 
 

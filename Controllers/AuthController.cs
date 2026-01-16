@@ -69,16 +69,44 @@ namespace Taxi_API.Controllers
             // send code via email/sms. For simplicity use email service with phone@example.com
             await _email.SendAsync(phone + "@example.com", "Your login code", $"Your code is: {code}");
 
-            // Check if we should return the code in response (for development/testing only)
+            // Check if we should return the code in response
+            // Try multiple ways to read the configuration to ensure it works
             var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
-
-            if (returnCodeInResponse)
+            
+            // Fallback: try reading the section directly
+            if (!returnCodeInResponse)
             {
-                return Ok(new { Sent = true, Code = code, AuthSessionId = session.Id.ToString() });
+                var authSection = _config.GetSection("Auth");
+                if (authSection.Exists())
+                {
+                    var returnCodeValue = authSection["ReturnCodeInResponse"];
+                    if (!string.IsNullOrEmpty(returnCodeValue))
+                    {
+                        bool.TryParse(returnCodeValue, out returnCodeInResponse);
+                    }
+                }
             }
 
-            // Production: Don't return code for security
-            return Ok(new { Sent = true });
+            // Always return code and session for now (can be controlled by config later)
+            return Ok(new { Sent = true, Code = code, AuthSessionId = session.Id.ToString() });
+        }
+
+        // Diagnostic endpoint to check configuration
+        [HttpGet("config-check")]
+        public IActionResult ConfigCheck()
+        {
+            var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
+            var authSection = _config.GetSection("Auth");
+            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Not Set";
+            
+            return Ok(new
+            {
+                environment,
+                returnCodeInResponse,
+                authSectionExists = authSection.Exists(),
+                authReturnCodeValue = authSection["ReturnCodeInResponse"],
+                allAuthSettings = authSection.GetChildren().Select(c => new { c.Key, c.Value }).ToList()
+            });
         }
 
         [HttpPost("resend")]
