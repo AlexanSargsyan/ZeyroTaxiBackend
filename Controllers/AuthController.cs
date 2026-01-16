@@ -69,19 +69,15 @@ namespace Taxi_API.Controllers
             // send code via email/sms. For simplicity use email service with phone@example.com
             await _email.SendAsync(phone + "@example.com", "Your login code", $"Your code is: {code}");
 
-            // Optionally return the code in response for testing/dev
-            var allowReturn = false;
-            if (bool.TryParse(_config["Auth:ReturnCodeInResponse"], out var cfgVal) && cfgVal) allowReturn = true;
-#if DEBUG
-            allowReturn = true;
-#endif
+            // Check if we should return the code in response (for development/testing only)
+            var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
 
-            if (allowReturn)
+            if (returnCodeInResponse)
             {
                 return Ok(new { Sent = true, Code = code, AuthSessionId = session.Id.ToString() });
             }
 
-            // Don't return AuthSessionId here to avoid misuse; client will call Verify with phone+code
+            // Production: Don't return code for security
             return Ok(new { Sent = true });
         }
 
