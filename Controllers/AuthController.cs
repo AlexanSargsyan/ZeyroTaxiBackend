@@ -37,6 +37,21 @@ namespace Taxi_API.Controllers
             if (norm == null) return BadRequest("Invalid phone format");
             var phone = norm;
 
+            // Check if a user with this phone number already exists with a different name
+            if (!string.IsNullOrWhiteSpace(req.Name))
+            {
+                var existingUser = await _db.Users.FirstOrDefaultAsync(u => u.Phone == phone);
+                if (existingUser != null && !string.Equals(existingUser.Name, req.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest(new
+                    {
+                        error = "Phone number already registered",
+                        message = $"This phone number is already registered with a different name. Please use the correct name: {existingUser.Name}",
+                        existingName = existingUser.Name
+                    });
+                }
+            }
+
             var code = new Random().Next(100000, 999999).ToString("D6");
             var session = new AuthSession
             {
