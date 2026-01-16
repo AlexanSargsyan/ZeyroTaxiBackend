@@ -42,7 +42,7 @@ namespace Taxi_API.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("AuthSessions");
+                    b.ToTable("AuthSessions", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.DriverProfile", b =>
@@ -122,7 +122,7 @@ namespace Taxi_API.Migrations
                     b.HasIndex("UserId")
                         .IsUnique();
 
-                    b.ToTable("DriverProfiles");
+                    b.ToTable("DriverProfiles", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.IPayPayment", b =>
@@ -195,7 +195,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("IPayPayments");
+                    b.ToTable("IPayPayments", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.IdramPayment", b =>
@@ -249,7 +249,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("IdramPayments");
+                    b.ToTable("IdramPayments", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.Order", b =>
@@ -364,7 +364,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("Orders");
+                    b.ToTable("Orders", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.PaymentCard", b =>
@@ -402,7 +402,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("UserId", "Last4");
 
-                    b.ToTable("PaymentCards");
+                    b.ToTable("PaymentCards", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.Photo", b =>
@@ -435,7 +435,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("DriverProfileId");
 
-                    b.ToTable("Photos");
+                    b.ToTable("Photos", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.ScheduledPlan", b =>
@@ -461,7 +461,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("UserId");
 
-                    b.ToTable("ScheduledPlans");
+                    b.ToTable("ScheduledPlans", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.ScheduledPlanExecution", b =>
@@ -486,7 +486,7 @@ namespace Taxi_API.Migrations
 
                     b.HasIndex("PlanId");
 
-                    b.ToTable("ScheduledPlanExecutions");
+                    b.ToTable("ScheduledPlanExecutions", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.User", b =>
@@ -519,7 +519,7 @@ namespace Taxi_API.Migrations
                     b.HasIndex("Phone")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("Taxi_API.Models.DriverProfile", b =>
