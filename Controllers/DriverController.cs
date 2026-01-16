@@ -392,8 +392,6 @@ namespace Taxi_API.Controllers
         }
 
         public record DriverLocationUpdate(double Lat, double Lng);
-        public record IdentityRequest(string? PassportNumber, string? PassportName, DateTime? PassportExpiry, string? PassportCountry,
-                                      string? LicenseNumber, string? LicenseName, DateTime? LicenseExpiry, string? LicenseIssuingCountry);
 
         [Authorize]
         [HttpGet("identity")]
@@ -410,28 +408,40 @@ namespace Taxi_API.Controllers
 
             return Ok(new
             {
-                passportNumber = dp.PassportNumber,
-                passportName = dp.PassportName,
-                passportExpiry = dp.PassportExpiry,
-                passportCountry = dp.PassportCountry,
-                licenseNumber = dp.LicenseNumber,
-                licenseName = dp.LicenseName,
-                licenseExpiry = dp.LicenseExpiry,
-                licenseIssuingCountry = dp.LicenseIssuingCountry,
+                passport = new
+                {
+                    passportNumber = dp.PassportNumber,
+                    passportName = dp.PassportName,
+                    passportExpiry = dp.PassportExpiry,
+                    passportCountry = dp.PassportCountry
+                },
+                license = new
+                {
+                    licenseNumber = dp.LicenseNumber,
+                    licenseName = dp.LicenseName,
+                    licenseExpiry = dp.LicenseExpiry,
+                    licenseIssuingCountry = dp.LicenseIssuingCountry
+                },
+                car = new
+                {
+                    carMake = dp.CarMake,
+                    carModel = dp.CarModel,
+                    carYear = dp.CarYear,
+                    carColor = dp.CarColor,
+                    carPlate = dp.CarPlate
+                },
                 photos = dp.Photos.Select(p => new { id = p.Id, path = p.Path, type = p.Type, uploadedAt = p.UploadedAt })
             });
         }
 
         [Authorize]
-        [HttpPatch("identity")]
-        public async Task<IActionResult> UpdateIdentity([FromBody] IdentityRequest req)
+        [HttpPost("identity/passport")]
+        public async Task<IActionResult> UploadPassport()
         {
-            if (req == null) return BadRequest("Body required");
-
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
 
-            var user = await _db.Users.Include(u => u.DriverProfile).FirstOrDefaultAsync(u => u.Id == userId);
+            var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
 
             if (user.DriverProfile == null)
@@ -440,21 +450,361 @@ namespace Taxi_API.Controllers
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
 
-            var dp = user.DriverProfile;
+            var form = Request.Form;
+            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
+            {
+                return BadRequest("Both 'front' and 'back' passport images are required");
+            }
 
-            dp.PassportNumber = string.IsNullOrWhiteSpace(req.PassportNumber) ? dp.PassportNumber : req.PassportNumber;
-            dp.PassportName = string.IsNullOrWhiteSpace(req.PassportName) ? dp.PassportName : req.PassportName;
-            dp.PassportExpiry = req.PassportExpiry ?? dp.PassportExpiry;
-            dp.PassportCountry = string.IsNullOrWhiteSpace(req.PassportCountry) ? dp.PassportCountry : req.PassportCountry;
+            var frontFile = form.Files["front"];
+            var backFile = form.Files["back"];
 
-            dp.LicenseNumber = string.IsNullOrWhiteSpace(req.LicenseNumber) ? dp.LicenseNumber : req.LicenseNumber;
-            dp.LicenseName = string.IsNullOrWhiteSpace(req.LicenseName) ? dp.LicenseName : req.LicenseName;
-            dp.LicenseExpiry = req.LicenseExpiry ?? dp.LicenseExpiry;
-            dp.LicenseIssuingCountry = string.IsNullOrWhiteSpace(req.LicenseIssuingCountry) ? dp.LicenseIssuingCountry : req.LicenseIssuingCountry;
+            // Validate file sizes (max 10MB each)
+            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest("Each file must be less than 10MB");
+            }
+
+            // Save images
+            var saved = new List<Photo>();
+            var frontFileName = $"{userId}_passport_front_{DateTime.UtcNow.Ticks}.jpg";
+            var backFileName = $"{userId}_passport_back_{DateTime.UtcNow.Ticks}.jpg";
+
+            using (var frontStream = frontFile.OpenReadStream())
+            {
+                var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "passport_front", Size = frontFile.Length });
+            }
+
+            using (var backStream = backFile.OpenReadStream())
+            {
+                var backPath = await _storage.SaveFileAsync(backStream, backFileName);
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "passport_back", Size = backFile.Length });
+            }
+
+            // Remove old passport photos
+            var oldPhotos = user.DriverProfile.Photos.Where(p => p.Type == "passport_front" || p.Type == "passport_back").ToList();
+            foreach (var old in oldPhotos)
+            {
+                user.DriverProfile.Photos.Remove(old);
+            }
+
+            // Add new photos
+            user.DriverProfile.Photos.AddRange(saved);
+
+            // Extract passport information using OCR
+            var ocr = HttpContext.RequestServices.GetService(typeof(IOcrService)) as IOcrService;
+            if (ocr != null)
+            {
+                try
+                {
+                    var frontPath = saved.First(p => p.Type == "passport_front").Path;
+                    var passportText = await ocr.ExtractTextAsync(frontPath, "eng");
+
+                    if (!string.IsNullOrWhiteSpace(passportText))
+                    {
+                        // Extract passport number (pattern: 2 letters followed by 5-8 digits)
+                        var numberMatch = System.Text.RegularExpressions.Regex.Match(passportText, @"[A-Z]{1,2}[0-9]{5,8}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (numberMatch.Success)
+                        {
+                            user.DriverProfile.PassportNumber = numberMatch.Value.ToUpper();
+                        }
+
+                        // Extract expiry date
+                        var dateMatch = System.Text.RegularExpressions.Regex.Match(passportText, @"(20\d{2}|19\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12][0-9]|3[01])");
+                        if (!dateMatch.Success)
+                        {
+                            dateMatch = System.Text.RegularExpressions.Regex.Match(passportText, @"(0[1-9]|[12][0-9]|3[01])[-/.](0[1-9]|1[0-2])[-/.](20\d{2}|19\d{2})");
+                        }
+                        if (dateMatch.Success && DateTime.TryParse(dateMatch.Value, out var expiry))
+                        {
+                            user.DriverProfile.PassportExpiry = expiry;
+                        }
+
+                        // Extract name (line with only letters, spaces, and hyphens)
+                        var lines = passportText.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+                        var nameLine = lines.FirstOrDefault(l => l.Split(' ').All(tok => tok.All(ch => char.IsLetter(ch) || ch == '-' || ch == ' ')) && l.Length > 4 && l.Length < 50);
+                        if (!string.IsNullOrWhiteSpace(nameLine))
+                        {
+                            user.DriverProfile.PassportName = nameLine;
+                        }
+
+                        // Extract country (look for common country keywords)
+                        var countryMatch = System.Text.RegularExpressions.Regex.Match(passportText, @"(United States|USA|Armenia|Russia|France|Germany|United Kingdom|UK)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (countryMatch.Success)
+                        {
+                            user.DriverProfile.PassportCountry = countryMatch.Value;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Log error but don't fail the request
+                    await _email.SendAsync(user.Phone + "@example.com", "Passport OCR error", ex.Message);
+                }
+            }
 
             await _db.SaveChangesAsync();
 
-            return Ok(new { ok = true });
+            return Ok(new
+            {
+                success = true,
+                passportNumber = user.DriverProfile.PassportNumber,
+                passportName = user.DriverProfile.PassportName,
+                passportExpiry = user.DriverProfile.PassportExpiry,
+                passportCountry = user.DriverProfile.PassportCountry,
+                photos = saved.Select(p => new { path = p.Path, type = p.Type })
+            });
+        }
+
+        [Authorize]
+        [HttpPost("identity/license")]
+        public async Task<IActionResult> UploadLicense()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return NotFound();
+
+            if (user.DriverProfile == null)
+            {
+                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                _db.DriverProfiles.Add(user.DriverProfile);
+            }
+
+            var form = Request.Form;
+            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
+            {
+                return BadRequest("Both 'front' and 'back' license images are required");
+            }
+
+            var frontFile = form.Files["front"];
+            var backFile = form.Files["back"];
+
+            // Validate file sizes
+            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest("Each file must be less than 10MB");
+            }
+
+            // Save images
+            var saved = new List<Photo>();
+            var frontFileName = $"{userId}_dl_front_{DateTime.UtcNow.Ticks}.jpg";
+            var backFileName = $"{userId}_dl_back_{DateTime.UtcNow.Ticks}.jpg";
+
+            using (var frontStream = frontFile.OpenReadStream())
+            {
+                var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "dl_front", Size = frontFile.Length });
+            }
+
+            using (var backStream = backFile.OpenReadStream())
+            {
+                var backPath = await _storage.SaveFileAsync(backStream, backFileName);
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "dl_back", Size = backFile.Length });
+            }
+
+            // Remove old license photos
+            var oldPhotos = user.DriverProfile.Photos.Where(p => p.Type == "dl_front" || p.Type == "dl_back").ToList();
+            foreach (var old in oldPhotos)
+            {
+                user.DriverProfile.Photos.Remove(old);
+            }
+
+            // Add new photos
+            user.DriverProfile.Photos.AddRange(saved);
+
+            // Extract license information using OCR
+            var ocr = HttpContext.RequestServices.GetService(typeof(IOcrService)) as IOcrService;
+            if (ocr != null)
+            {
+                try
+                {
+                    var frontPath = saved.First(p => p.Type == "dl_front").Path;
+                    var licenseText = await ocr.ExtractTextAsync(frontPath, "eng");
+
+                    if (!string.IsNullOrWhiteSpace(licenseText))
+                    {
+                        // Extract license number (alphanumeric, 5-20 characters)
+                        var numberMatch = System.Text.RegularExpressions.Regex.Match(licenseText, @"[A-Z0-9\-]{5,20}", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (numberMatch.Success)
+                        {
+                            user.DriverProfile.LicenseNumber = numberMatch.Value.ToUpper();
+                        }
+
+                        // Extract expiry date
+                        var dateMatch = System.Text.RegularExpressions.Regex.Match(licenseText, @"(20\d{2}|19\d{2})[-/.](0[1-9]|1[0-2])[-/.](0[1-9]|[12][0-9]|3[01])");
+                        if (!dateMatch.Success)
+                        {
+                            dateMatch = System.Text.RegularExpressions.Regex.Match(licenseText, @"(0[1-9]|[12][0-9]|3[01])[-/.](0[1-9]|1[0-2])[-/.](20\d{2}|19\d{2})");
+                        }
+                        if (dateMatch.Success && DateTime.TryParse(dateMatch.Value, out var expiry))
+                        {
+                            user.DriverProfile.LicenseExpiry = expiry;
+                        }
+
+                        // Extract name
+                        var lines = licenseText.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+                        var nameLine = lines.FirstOrDefault(l => l.Split(' ').All(tok => tok.All(ch => char.IsLetter(ch) || ch == '-' || ch == ' ')) && l.Length > 4 && l.Length < 50);
+                        if (!string.IsNullOrWhiteSpace(nameLine))
+                        {
+                            user.DriverProfile.LicenseName = nameLine;
+                        }
+
+                        // Extract issuing country
+                        var countryMatch = System.Text.RegularExpressions.Regex.Match(licenseText, @"(United States|USA|Armenia|Russia|France|Germany|United Kingdom|UK)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (countryMatch.Success)
+                        {
+                            user.DriverProfile.LicenseIssuingCountry = countryMatch.Value;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await _email.SendAsync(user.Phone + "@example.com", "License OCR error", ex.Message);
+                }
+            }
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                licenseNumber = user.DriverProfile.LicenseNumber,
+                licenseName = user.DriverProfile.LicenseName,
+                licenseExpiry = user.DriverProfile.LicenseExpiry,
+                licenseIssuingCountry = user.DriverProfile.LicenseIssuingCountry,
+                photos = saved.Select(p => new { path = p.Path, type = p.Type })
+            });
+        }
+
+        [Authorize]
+        [HttpPost("identity/car-registration")]
+        public async Task<IActionResult> UploadCarRegistration()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
+            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+
+            var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null) return NotFound();
+
+            if (user.DriverProfile == null)
+            {
+                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                _db.DriverProfiles.Add(user.DriverProfile);
+            }
+
+            var form = Request.Form;
+            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
+            {
+                return BadRequest("Both 'front' and 'back' car registration images are required");
+            }
+
+            var frontFile = form.Files["front"];
+            var backFile = form.Files["back"];
+
+            // Validate file sizes
+            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest("Each file must be less than 10MB");
+            }
+
+            // Save images
+            var saved = new List<Photo>();
+            var frontFileName = $"{userId}_tech_passport_front_{DateTime.UtcNow.Ticks}.jpg";
+            var backFileName = $"{userId}_tech_passport_back_{DateTime.UtcNow.Ticks}.jpg";
+
+            using (var frontStream = frontFile.OpenReadStream())
+            {
+                var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "tech_passport_front", Size = frontFile.Length });
+            }
+
+            using (var backStream = backFile.OpenReadStream())
+            {
+                var backPath = await _storage.SaveFileAsync(backStream, backFileName);
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "tech_passport_back", Size = backFile.Length });
+            }
+
+            // Remove old tech passport photos
+            var oldPhotos = user.DriverProfile.Photos.Where(p => p.Type == "tech_passport_front" || p.Type == "tech_passport_back" || p.Type == "tech_passport").ToList();
+            foreach (var old in oldPhotos)
+            {
+                user.DriverProfile.Photos.Remove(old);
+            }
+
+            // Add new photos
+            user.DriverProfile.Photos.AddRange(saved);
+
+            // Extract car registration information using OCR
+            var ocr = HttpContext.RequestServices.GetService(typeof(IOcrService)) as IOcrService;
+            if (ocr != null)
+            {
+                try
+                {
+                    var frontPath = saved.First(p => p.Type == "tech_passport_front").Path;
+                    var regText = await ocr.ExtractTextAsync(frontPath, "eng");
+
+                    if (!string.IsNullOrWhiteSpace(regText))
+                    {
+                        // Extract year
+                        var yearMatch = System.Text.RegularExpressions.Regex.Match(regText, @"\b(19|20)\d{2}\b");
+                        if (yearMatch.Success && int.TryParse(yearMatch.Value, out var year))
+                        {
+                            user.DriverProfile.CarYear = year;
+                        }
+
+                        // Extract make and model
+                        var makeModel = ExtractMakeModelFromText(regText);
+                        if (!string.IsNullOrWhiteSpace(makeModel.make))
+                        {
+                            user.DriverProfile.CarMake = makeModel.make;
+                        }
+                        if (!string.IsNullOrWhiteSpace(makeModel.model))
+                        {
+                            user.DriverProfile.CarModel = makeModel.model;
+                        }
+
+                        // Extract color (look for common color names)
+                        var colorMatch = System.Text.RegularExpressions.Regex.Match(regText, @"\b(white|black|silver|gray|grey|red|blue|green|yellow|orange|brown|beige)\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (colorMatch.Success)
+                        {
+                            user.DriverProfile.CarColor = colorMatch.Value;
+                        }
+
+                        // Extract plate number (various formats: ABC123, AB-123-CD, etc.)
+                        var plateMatch = System.Text.RegularExpressions.Regex.Match(regText, @"\b[A-Z0-9]{2,3}[-\s]?[0-9]{2,4}[-\s]?[A-Z0-9]{0,3}\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                        if (plateMatch.Success)
+                        {
+                            user.DriverProfile.CarPlate = plateMatch.Value.ToUpper();
+                        }
+
+                        // Check if car is too old
+                        if (user.DriverProfile.CarYear.HasValue && user.DriverProfile.CarYear.Value < 2010)
+                        {
+                            await _email.SendAsync(user.Phone + "@example.com", "Car too old", $"Detected car year {user.DriverProfile.CarYear.Value} is below allowed threshold (2010).");
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    await _email.SendAsync(user.Phone + "@example.com", "Car registration OCR error", ex.Message);
+                }
+            }
+
+            await _db.SaveChangesAsync();
+
+            return Ok(new
+            {
+                success = true,
+                carMake = user.DriverProfile.CarMake,
+                carModel = user.DriverProfile.CarModel,
+                carYear = user.DriverProfile.CarYear,
+                carColor = user.DriverProfile.CarColor,
+                carPlate = user.DriverProfile.CarPlate,
+                photos = saved.Select(p => new { path = p.Path, type = p.Type })
+            });
         }
 
         private (string make, string model) ExtractMakeModelFromText(string text)
