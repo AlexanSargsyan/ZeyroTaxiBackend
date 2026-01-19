@@ -202,9 +202,15 @@ namespace Taxi_API.Controllers
                 var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsDriver);
                 if (user == null) return Unauthorized(new { error = "No driver user for token subject" });
 
+                // Get the most recent verified session for this user
+                var latestSession = await _db.AuthSessions
+                    .Where(s => s.Phone == user.Phone && s.Verified)
+                    .OrderByDescending(s => s.CreatedAt)
+                    .FirstOrDefaultAsync();
+
                 // Issue a fresh token
                 var newToken = _tokenService.GenerateToken(user);
-                return Ok(new AuthResponse(newToken, string.Empty));
+                return Ok(new AuthResponse(newToken, latestSession?.Id.ToString() ?? string.Empty));
             }
             catch (Microsoft.IdentityModel.Tokens.SecurityTokenExpiredException)
             {

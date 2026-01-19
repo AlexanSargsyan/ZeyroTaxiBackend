@@ -32,7 +32,16 @@ namespace Taxi_API.Services
             byte[] keyBytes = SHA256.HashData(Encoding.UTF8.GetBytes(key));
 
             var creds = new SigningCredentials(new SymmetricSecurityKey(keyBytes), SecurityAlgorithms.HmacSha256);
-            var token = new JwtSecurityToken(issuer, issuer, claims, expires: DateTime.UtcNow.AddDays(7), signingCredentials: creds);
+            
+            // Remove audience parameter to match validation settings (ValidateAudience = false)
+            var token = new JwtSecurityToken(
+                issuer: issuer,
+                audience: null,  // Don't set audience since we don't validate it
+                claims: claims,
+                expires: DateTime.UtcNow.AddDays(7),
+                signingCredentials: creds
+            );
+            
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
     }

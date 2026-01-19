@@ -87,24 +87,6 @@ namespace Taxi_API.Controllers
             return Ok(new { Sent = true, Code = code });
         }
 
-        // Diagnostic endpoint to check configuration
-        [HttpGet("config-check")]
-        public IActionResult ConfigCheck()
-        {
-            var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
-            var authSection = _config.GetSection("Auth");
-            var environment = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? "Not Set";
-            
-            return Ok(new
-            {
-                environment,
-                returnCodeInResponse,
-                authSectionExists = authSection.Exists(),
-                authReturnCodeValue = authSection["ReturnCodeInResponse"],
-                allAuthSettings = authSection.GetChildren().Select(c => new { c.Key, c.Value }).ToList()
-            });
-        }
-
         [HttpPost("resend")]
         public async Task<IActionResult> Resend([FromBody] ResendRequest req)
         {

@@ -331,7 +331,7 @@ namespace Taxi_API.Controllers
 
         [Authorize]
         [HttpPatch("location")]
-        public async Task<IActionResult> UpdateLocation([FromBody] DriverLocationUpdate req)
+        public async Task<IActionResult> UpdateLocation([FromBody] DriverLocationUpdateRequest req)
         {
             if (req == null) return BadRequest("Body required");
 
@@ -391,8 +391,6 @@ namespace Taxi_API.Controllers
             return Ok(new { accountId, link });
         }
 
-        public record DriverLocationUpdate(double Lat, double Lng);
-
         [Authorize]
         [HttpGet("identity")]
         public async Task<IActionResult> GetIdentity()
@@ -434,16 +432,23 @@ namespace Taxi_API.Controllers
             });
         }
 
+        public class TwoSideUploadRequest
+        {
+            public IFormFile Front { get; set; } = null!;
+            public IFormFile Back { get; set; } = null!;
+        }
+
         [Authorize]
         [HttpPost("identity/passport")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> UploadPassport([FromForm] IFormFile front, [FromForm] IFormFile back)
+        public async Task<IActionResult> UploadPassport(
+            [FromForm] TwoSideUploadRequest request)
         {
-            // Validate that files are provided
+            var front = request.Front;
+            var back = request.Back;
+
             if (front == null || back == null)
-            {
                 return BadRequest("Both 'front' and 'back' passport images are required");
-            }
 
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
@@ -558,13 +563,15 @@ namespace Taxi_API.Controllers
         [Authorize]
         [HttpPost("identity/license")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> UploadLicense([FromForm] IFormFile front, [FromForm] IFormFile back)
+        public async Task<IActionResult> UploadLicense(
+            [FromForm] TwoSideUploadRequest request)
         {
-            // Validate that files are provided
+            var front = request.Front;
+            var back = request.Back;
+
             if (front == null || back == null)
-            {
                 return BadRequest("Both 'front' and 'back' license images are required");
-            }
+
 
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
@@ -678,13 +685,14 @@ namespace Taxi_API.Controllers
         [Authorize]
         [HttpPost("identity/car-registration")]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> UploadCarRegistration([FromForm] IFormFile front, [FromForm] IFormFile back)
+        public async Task<IActionResult> UploadCarRegistration(
+            [FromForm] TwoSideUploadRequest request)
         {
-            // Validate that files are provided
+            var front = request.Front;
+            var back = request.Back;
+
             if (front == null || back == null)
-            {
                 return BadRequest("Both 'front' and 'back' car registration images are required");
-            }
 
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();

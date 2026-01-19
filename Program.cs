@@ -15,6 +15,17 @@ builder.WebHost.UseUrls("http://0.0.0.0:5000");
 
 builder.Services.AddControllers();
 
+// Add CORS policy
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(
         builder.Configuration.GetConnectionString("Default")
@@ -51,9 +62,9 @@ builder.Services.AddSingleton<IOcrService, TesseractOcrService>();
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";
 
-var signingKey = new SymmetricSecurityKey(
-    Encoding.UTF8.GetBytes(jwtKey)
-);
+// Use SHA256 to derive a consistent key (same as in JwtTokenService)
+var keyBytes = System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(jwtKey));
+var signingKey = new SymmetricSecurityKey(keyBytes);
 
 builder.Services
     .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -119,18 +130,7 @@ Several endpoints support multipart/form-data for file uploads:
 - **Payments**: Payment processing (Stripe, Idram, IPay)
 - **Voice**: AI-powered voice and chat features
 - **Schedule**: Scheduled ride management
-",
-        Contact = new OpenApiContact
-        {
-            Name = "Zeyro Taxi Support",
-            Email = "support@zeyro.space",
-            Url = new Uri("https://zeyro.space")
-        },
-        License = new OpenApiLicense
-        {
-            Name = "Proprietary",
-            Url = new Uri("https://zeyro.space/license")
-        }
+"
     });
 
     // JWT Bearer Authentication
@@ -167,7 +167,7 @@ Several endpoints support multipart/form-data for file uploads:
     // Enable annotations for better documentation
     c.EnableAnnotations();
 
-    // Order operations by controller and then by path
+    // Order actions by controller and then by path
     c.OrderActionsBy(apiDesc => $"{apiDesc.ActionDescriptor.RouteValues["controller"]}_{apiDesc.RelativePath}");
 
     // Tag controllers for better organization
@@ -176,20 +176,20 @@ Several endpoints support multipart/form-data for file uploads:
         var controllerName = api.ActionDescriptor.RouteValues["controller"];
         return controllerName switch
         {
-            "Auth" => new[] { "01. User Authentication" },
-            "Driver" when api.RelativePath?.Contains("/identity") == true => new[] { "03. Driver Identity & Documents" },
+            "Auth" => new[] { "User Authentication" },
+            "Driver" when api.RelativePath?.Contains("/identity") == true => new[] { "Driver Identity & Documents" },
             "Driver" when api.HttpMethod == "POST" && (api.RelativePath?.Contains("/request-code") == true || 
                           api.RelativePath?.Contains("/verify") == true || 
                           api.RelativePath?.Contains("/auth") == true ||
                           api.RelativePath?.Contains("/login") == true ||
-                          api.RelativePath?.Contains("/logout") == true) => new[] { "02. Driver Authentication" },
-            "Driver" => new[] { "04. Driver Profile & Management" },
-            "Orders" => new[] { "05. Orders & Trips" },
-            "Payments" => new[] { "06. Payments (Stripe)" },
-            "Idram" => new[] { "07. Payments (Idram)" },
-            "IPay" => new[] { "08. Payments (IPay)" },
-            "Voice" => new[] { "09. Voice AI & Chat" },
-            "Schedule" => new[] { "10. Scheduled Rides" },
+                          api.RelativePath?.Contains("/logout") == true) => new[] { "Driver Authentication" },
+            "Driver" => new[] { "Driver Profile & Management" },
+            "Orders" => new[] { "Orders & Trips" },
+            "Payments" => new[] { "Payments (Stripe)" },
+            "Idram" => new[] { "Payments (Idram)" },
+            "IPay" => new[] { "Payments (IPay)" },
+            "Voice" => new[] { "Voice AI & Chat" },
+            "Schedule" => new[] { "Scheduled Rides" },
             _ => new[] { controllerName ?? "Other" }
         };
     });
@@ -204,9 +204,6 @@ Several endpoints support multipart/form-data for file uploads:
 
     // Custom schema IDs to avoid conflicts
     c.CustomSchemaIds(type => type.FullName);
-
-    // Support for file uploads
-    c.OperationFilter<FileUploadOperationFilter>();
 
     // Map known types for better schema generation
     c.MapType<IFormFile>(() => new OpenApiSchema
@@ -229,6 +226,12 @@ app.UseForwardedHeaders(new ForwardedHeadersOptions
         ForwardedHeaders.XForwardedProto |
         ForwardedHeaders.XForwardedHost
 });
+
+// Enable static files for Swagger custom CSS
+app.UseStaticFiles();
+
+// Enable CORS
+app.UseCors();
 
 // enable websockets
 app.UseWebSockets();
@@ -475,44 +478,5 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
         var lg = loggerFactory?.CreateLogger("EnsureDatabaseMigratedAsync");
         lg?.LogError(ex, "Failed to apply database migrations at startup. Ensure migrations are created and the process has write access to the database file.");
         throw;
-    }
-}
-
-// Custom operation filter for file upload endpoints
-public class FileUploadOperationFilter : Swashbuckle.AspNetCore.SwaggerGen.IOperationFilter
-{
-    public void Apply(Microsoft.OpenApi.Models.OpenApiOperation operation, Swashbuckle.AspNetCore.SwaggerGen.OperationFilterContext context)
-    {
-        var fileParameters = context.MethodInfo.GetParameters()
-            .Where(p => p.ParameterType == typeof(IFormFile) || 
-                       p.ParameterType == typeof(IEnumerable<IFormFile>) ||
-                       p.ParameterType == typeof(IFormFileCollection))
-            .ToList();
-
-        if (!fileParameters.Any())
-            return;
-
-        operation.RequestBody = new OpenApiRequestBody
-        {
-            Content = new Dictionary<string, OpenApiMediaType>
-            {
-                ["multipart/form-data"] = new OpenApiMediaType
-                {
-                    Schema = new OpenApiSchema
-                    {
-                        Type = "object",
-                        Properties = fileParameters.ToDictionary(
-                            p => p.Name ?? "file",
-                            p => new OpenApiSchema
-                            {
-                                Type = "string",
-                                Format = "binary"
-                            }
-                        ),
-                        Required = fileParameters.Select(p => p.Name ?? "file").ToHashSet()
-                    }
-                }
-            }
-        };
     }
 }
