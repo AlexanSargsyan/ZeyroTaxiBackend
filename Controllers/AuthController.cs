@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using Microsoft.Extensions.Logging;
 
 namespace Taxi_API.Controllers
 {
@@ -21,14 +22,16 @@ namespace Taxi_API.Controllers
         private readonly IEmailService _email;
         private readonly ISmsService _sms;
         private readonly IConfiguration _config;
+        private readonly ILogger<AuthController> _logger;
 
-        public AuthController(AppDbContext db, ITokenService tokenService, IEmailService email, ISmsService sms, IConfiguration config)
+        public AuthController(AppDbContext db, ITokenService tokenService, IEmailService email, ISmsService sms, IConfiguration config, ILogger<AuthController> logger)
         {
             _db = db;
             _tokenService = tokenService;
             _email = email;
             _sms = sms;
             _config = config;
+            _logger = logger;
         }
 
         [HttpPost("request-code")]
@@ -69,11 +72,18 @@ namespace Taxi_API.Controllers
             _db.AuthSessions.Add(session);
             await _db.SaveChangesAsync();
 
-            // send code via email/sms. For simplicity use email service with phone@example.com
-            await _email.SendAsync(phone + "@example.com", "Your login code", $"Your code is: {code}");
+            // Send code via SMS (Veloconnect)
+            try
+            {
+                await _sms.SendSmsAsync(phone, $"Your verification code is: {code}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send SMS to {Phone}", phone);
+                // Continue anyway and return the code
+            }
 
             // Check if we should return the code in response
-            // Try multiple ways to read the configuration to ensure it works
             var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
             
             // Fallback: try reading the section directly
@@ -135,13 +145,18 @@ namespace Taxi_API.Controllers
 
             await _db.SaveChangesAsync();
 
-            await _email.SendAsync(
-                phone + "@example.com",
-                "Your login code (resend)",
-                $"Your code is: {session.Code}"
-            );
+            // Send code via SMS (Veloconnect)
+            try
+            {
+                await _sms.SendSmsAsync(phone, $"Your verification code is: {session.Code}");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send SMS to {Phone}", phone);
+                // Continue anyway
+            }
 
-            return Ok(new { Sent = true });
+            return Ok(new { Sent = true, Code = session.Code, AuthSessionId = session.Id.ToString() });
         }
 
         [HttpPost("verify")]

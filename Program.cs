@@ -23,8 +23,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddScoped<IStorageService, LocalStorageService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
-builder.Services.AddScoped<ISmsService, TwilioSmsService>();
-builder.Services.AddScoped<IEmailService, SmtpEmailService>();
+builder.Services.AddScoped<ISmsService, VeloconnectSmsService>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
 builder.Services.AddSingleton<IImageComparisonService, OpenCvImageComparisonService>();
 // Register OpenAI service for voice/chat

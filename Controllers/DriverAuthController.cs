@@ -57,9 +57,17 @@ namespace Taxi_API.Controllers
             _db.AuthSessions.Add(session);
             await _db.SaveChangesAsync();
 
-            // send via SMS and email fallback
-            try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {code}"); } catch { }
-            try { await _email.SendAsync(phone + "@example.com", "Your driver verification code", $"Your code is: {code}"); } catch { }
+            // Send via SMS (Veloconnect)
+            try
+            {
+                await _sms.SendSmsAsync(phone, $"Your driver verification code is: {code}");
+            }
+            catch (Exception ex)
+            {
+                var logger = HttpContext.RequestServices.GetService(typeof(ILogger<DriverAuthController>)) as ILogger<DriverAuthController>;
+                logger?.LogError(ex, "Failed to send SMS to {Phone}", phone);
+                // Continue anyway
+            }
 
             // Always return code and session for now (matching regular auth behavior)
             return Ok(new { sent = true, code = code, authSessionId = session.Id.ToString() });
@@ -85,8 +93,17 @@ namespace Taxi_API.Controllers
             session.ExpiresAt = DateTime.UtcNow.AddMinutes(10);
             await _db.SaveChangesAsync();
 
-            try { await _sms.SendSmsAsync(phone, $"Your driver verification code: {session.Code}"); } catch { }
-            try { await _email.SendAsync(phone + "@example.com", "Your driver verification code (resend)", $"Your code is: {session.Code}"); } catch { }
+            // Send via SMS (Veloconnect)
+            try
+            {
+                await _sms.SendSmsAsync(phone, $"Your driver verification code is: {session.Code}");
+            }
+            catch (Exception ex)
+            {
+                var logger = HttpContext.RequestServices.GetService(typeof(ILogger<DriverAuthController>)) as ILogger<DriverAuthController>;
+                logger?.LogError(ex, "Failed to send SMS to {Phone}", phone);
+                // Continue anyway
+            }
 
             // Always return code and session for now (matching regular auth behavior)
             return Ok(new { sent = true, code = session.Code, authSessionId = session.Id.ToString() });
