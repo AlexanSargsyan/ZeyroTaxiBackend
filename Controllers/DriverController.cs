@@ -436,8 +436,15 @@ namespace Taxi_API.Controllers
 
         [Authorize]
         [HttpPost("identity/passport")]
-        public async Task<IActionResult> UploadPassport()
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadPassport([FromForm] IFormFile front, [FromForm] IFormFile back)
         {
+            // Validate that files are provided
+            if (front == null || back == null)
+            {
+                return BadRequest("Both 'front' and 'back' passport images are required");
+            }
+
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
 
@@ -450,17 +457,8 @@ namespace Taxi_API.Controllers
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
 
-            var form = Request.Form;
-            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
-            {
-                return BadRequest("Both 'front' and 'back' passport images are required");
-            }
-
-            var frontFile = form.Files["front"];
-            var backFile = form.Files["back"];
-
             // Validate file sizes (max 10MB each)
-            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            if (front.Length > 10 * 1024 * 1024 || back.Length > 10 * 1024 * 1024)
             {
                 return BadRequest("Each file must be less than 10MB");
             }
@@ -470,16 +468,16 @@ namespace Taxi_API.Controllers
             var frontFileName = $"{userId}_passport_front_{DateTime.UtcNow.Ticks}.jpg";
             var backFileName = $"{userId}_passport_back_{DateTime.UtcNow.Ticks}.jpg";
 
-            using (var frontStream = frontFile.OpenReadStream())
+            using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "passport_front", Size = frontFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "passport_front", Size = front.Length });
             }
 
-            using (var backStream = backFile.OpenReadStream())
+            using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "passport_back", Size = backFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "passport_back", Size = back.Length });
             }
 
             // Remove old passport photos
@@ -559,8 +557,15 @@ namespace Taxi_API.Controllers
 
         [Authorize]
         [HttpPost("identity/license")]
-        public async Task<IActionResult> UploadLicense()
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadLicense([FromForm] IFormFile front, [FromForm] IFormFile back)
         {
+            // Validate that files are provided
+            if (front == null || back == null)
+            {
+                return BadRequest("Both 'front' and 'back' license images are required");
+            }
+
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
 
@@ -573,17 +578,8 @@ namespace Taxi_API.Controllers
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
 
-            var form = Request.Form;
-            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
-            {
-                return BadRequest("Both 'front' and 'back' license images are required");
-            }
-
-            var frontFile = form.Files["front"];
-            var backFile = form.Files["back"];
-
             // Validate file sizes
-            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            if (front.Length > 10 * 1024 * 1024 || back.Length > 10 * 1024 * 1024)
             {
                 return BadRequest("Each file must be less than 10MB");
             }
@@ -593,16 +589,16 @@ namespace Taxi_API.Controllers
             var frontFileName = $"{userId}_dl_front_{DateTime.UtcNow.Ticks}.jpg";
             var backFileName = $"{userId}_dl_back_{DateTime.UtcNow.Ticks}.jpg";
 
-            using (var frontStream = frontFile.OpenReadStream())
+            using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "dl_front", Size = frontFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "dl_front", Size = front.Length });
             }
 
-            using (var backStream = backFile.OpenReadStream())
+            using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "dl_back", Size = backFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "dl_back", Size = back.Length });
             }
 
             // Remove old license photos
@@ -681,8 +677,15 @@ namespace Taxi_API.Controllers
 
         [Authorize]
         [HttpPost("identity/car-registration")]
-        public async Task<IActionResult> UploadCarRegistration()
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadCarRegistration([FromForm] IFormFile front, [FromForm] IFormFile back)
         {
+            // Validate that files are provided
+            if (front == null || back == null)
+            {
+                return BadRequest("Both 'front' and 'back' car registration images are required");
+            }
+
             var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
             if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
 
@@ -695,17 +698,8 @@ namespace Taxi_API.Controllers
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
 
-            var form = Request.Form;
-            if (!form.Files.Any(f => f.Name == "front") || !form.Files.Any(f => f.Name == "back"))
-            {
-                return BadRequest("Both 'front' and 'back' car registration images are required");
-            }
-
-            var frontFile = form.Files["front"];
-            var backFile = form.Files["back"];
-
             // Validate file sizes
-            if (frontFile.Length > 10 * 1024 * 1024 || backFile.Length > 10 * 1024 * 1024)
+            if (front.Length > 10 * 1024 * 1024 || back.Length > 10 * 1024 * 1024)
             {
                 return BadRequest("Each file must be less than 10MB");
             }
@@ -715,16 +709,16 @@ namespace Taxi_API.Controllers
             var frontFileName = $"{userId}_tech_passport_front_{DateTime.UtcNow.Ticks}.jpg";
             var backFileName = $"{userId}_tech_passport_back_{DateTime.UtcNow.Ticks}.jpg";
 
-            using (var frontStream = frontFile.OpenReadStream())
+            using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "tech_passport_front", Size = frontFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "tech_passport_front", Size = front.Length });
             }
 
-            using (var backStream = backFile.OpenReadStream())
+            using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "tech_passport_back", Size = backFile.Length });
+                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "tech_passport_back", Size = back.Length });
             }
 
             // Remove old tech passport photos

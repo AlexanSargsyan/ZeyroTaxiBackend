@@ -22,12 +22,23 @@ namespace Taxi_API.Controllers
 
         [HttpPost("upload")]
         [Authorize]
-        public async Task<IActionResult> UploadVoice([FromForm] IFormFile file, [FromForm] string? lang, [FromForm] bool audio = false)
+        [Consumes("multipart/form-data")]
+        public async Task<IActionResult> UploadVoice(
+            [FromForm] IFormFile file, 
+            [FromForm] string? lang, 
+            [FromForm] string? voice = null)
         {
             if (file == null || file.Length == 0) return BadRequest("No audio file provided");
 
             // default to English if not provided
             lang ??= "en";
+
+            // Validate language
+            var supportedLanguages = new[] { "en", "ru", "hy" };
+            if (!supportedLanguages.Contains(lang.ToLower()))
+            {
+                return BadRequest($"Unsupported language '{lang}'. Supported: en (English), ru (Russian), hy (Armenian)");
+            }
 
             using var ms = new MemoryStream();
             await file.CopyToAsync(ms);
@@ -40,9 +51,9 @@ namespace Taxi_API.Controllers
             var lower = text.ToLowerInvariant();
             string intent = "chat";
 
-            var taxiKeywords = new[] { "taxi", "?????", "?????" };
-            var deliveryKeywords = new[] { "delivery", "???????", "????????" };
-            var scheduleKeywords = new[] { "schedule", "???", "???????", "??????????" };
+            var taxiKeywords = new[] { "taxi", "տաքսի", "такси" };
+            var deliveryKeywords = new[] { "delivery", "առաքում", "доставка" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "график", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
@@ -96,14 +107,21 @@ namespace Taxi_API.Controllers
                 }
             }
 
-            if (audio)
+            // Voice input ALWAYS gets voice output
+            var audioBytes = await _openAi.SynthesizeSpeechAsync(reply, lang, voice);
+            if (audioBytes == null) return StatusCode(502, "TTS failed");
+            
+            // Return audio file with metadata in headers
+            Response.Headers.Add("X-Transcription", text);
+            Response.Headers.Add("X-Intent", intent);
+            Response.Headers.Add("X-Language", lang);
+            if (created != null)
             {
-                var audioBytes = await _openAi.SynthesizeSpeechAsync(reply, lang);
-                if (audioBytes == null) return StatusCode(502, "TTS failed");
-                return File(audioBytes, "audio/wav", "reply.wav");
+                Response.Headers.Add("X-Order-Created", "true");
+                Response.Headers.Add("X-Order-Id", created.Id.ToString());
             }
-
-            return Ok(new { transcription = text, intent, reply, order = created });
+            
+            return File(audioBytes, "audio/wav", "reply.wav");
         }
 
         // New translate endpoint
@@ -123,8 +141,8 @@ namespace Taxi_API.Controllers
                 var s = l.Trim().ToLowerInvariant();
                 return s switch
                 {
-                    "hy" or "armenian" or "arm" => "hy",
-                    "ru" or "rus" or "russian" => "ru",
+                    "hy" or "armenian" or "arm" or "հայերեն" => "hy",
+                    "ru" or "rus" or "russian" or "русский" => "ru",
                     "en" or "eng" or "english" => "en",
                     _ => string.Empty
                 };
@@ -132,7 +150,7 @@ namespace Taxi_API.Controllers
 
             var from = string.IsNullOrWhiteSpace(req.From) ? "auto" : NormalizeLang(req.From) ?? "auto";
             var to = NormalizeLang(req.To);
-            if (string.IsNullOrEmpty(to)) return BadRequest("Unsupported target language. Supported: hy, ru, en");
+            if (string.IsNullOrEmpty(to)) return BadRequest("Unsupported target language. Supported: hy (Armenian), ru (Russian), en (English)");
 
             // Build prompt for translation
             var prompt = from == "auto"
@@ -150,11 +168,11 @@ namespace Taxi_API.Controllers
                 return File(audioBytes, "audio/wav", "translation.wav");
             }
 
-            return Ok(new { text = req.Text, translation });
+            return Ok(new { text = req.Text, translation, from = from, to = to });
         }
 
-        // New text chat endpoint for chat page
-        public record ChatRequest(string Text, string? Lang = null, bool Audio = false);
+        // Text chat endpoint - text input gets text output
+        public record ChatRequest(string Text, string? Lang = null, string? Voice = null);
 
         [HttpPost("chat")]
         [Authorize]
@@ -162,16 +180,24 @@ namespace Taxi_API.Controllers
         {
             if (req == null || string.IsNullOrWhiteSpace(req.Text)) return BadRequest("Text is required");
 
-            var lang = string.IsNullOrWhiteSpace(req.Lang) ? "en" : req.Lang;
+            var lang = string.IsNullOrWhiteSpace(req.Lang) ? "en" : req.Lang.ToLower();
+            
+            // Validate language
+            var supportedLanguages = new[] { "en", "ru", "hy" };
+            if (!supportedLanguages.Contains(lang))
+            {
+                return BadRequest($"Unsupported language '{lang}'. Supported: en (English), ru (Russian), hy (Armenian)");
+            }
+
             var text = req.Text.Trim();
 
             // Keyword detection across supported languages
             var lower = text.ToLowerInvariant();
             string intent = "chat";
 
-            var taxiKeywords = new[] { "taxi", "պտի՞", "такси" };
-            var deliveryKeywords = new[] { "delivery", "բերել", "доставка" };
-            var scheduleKeywords = new[] { "schedule", "ժամ", "расписание" };
+            var taxiKeywords = new[] { "taxi", "տաքսի", "такси" };
+            var deliveryKeywords = new[] { "delivery", "առաքում", "доставка" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "графիկ", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
@@ -223,14 +249,8 @@ namespace Taxi_API.Controllers
                 }
             }
 
-            if (req.Audio)
-            {
-                var audioBytes = await _openAi.SynthesizeSpeechAsync(reply, lang);
-                if (audioBytes == null) return StatusCode(502, "TTS failed");
-                return File(audioBytes, "audio/wav", "reply.wav");
-            }
-
-            return Ok(new { text, intent, reply, order = created });
+            // Text input ALWAYS gets text output (JSON)
+            return Ok(new { text, intent, reply, order = created, language = lang });
         }
     }
 }

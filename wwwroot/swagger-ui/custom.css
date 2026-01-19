@@ -1,0 +1,231 @@
+/* Custom Swagger UI Styling for Zeyro Taxi API */
+
+/* Brand colors */
+:root {
+    --primary-color: #4CAF50;
+    --secondary-color: #2196F3;
+    --accent-color: #FF9800;
+    --success-color: #4CAF50;
+    --error-color: #f44336;
+    --warning-color: #ff9800;
+}
+
+/* Header styling */
+.swagger-ui .topbar {
+    background-color: var(--primary-color);
+    padding: 10px 0;
+}
+
+.swagger-ui .topbar-wrapper img[alt="Swagger UI"] {
+    display: none;
+}
+
+.swagger-ui .topbar-wrapper .link:after {
+    content: "Zeyro Taxi API";
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+}
+
+/* Info section styling */
+.swagger-ui .information-container {
+    background-color: #f9f9f9;
+    border-left: 4px solid var(--primary-color);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.swagger-ui .info .title {
+    color: var(--primary-color);
+    font-size: 36px;
+}
+
+/* HTTP Method colors */
+.swagger-ui .opblock.opblock-post {
+    border-color: var(--success-color);
+    background: rgba(76, 175, 80, 0.1);
+}
+
+.swagger-ui .opblock.opblock-get {
+    border-color: var(--secondary-color);
+    background: rgba(33, 150, 243, 0.1);
+}
+
+.swagger-ui .opblock.opblock-put {
+    border-color: var(--accent-color);
+    background: rgba(255, 152, 0, 0.1);
+}
+
+.swagger-ui .opblock.opblock-delete {
+    border-color: var(--error-color);
+    background: rgba(244, 67, 54, 0.1);
+}
+
+.swagger-ui .opblock.opblock-patch {
+    border-color: #9C27B0;
+    background: rgba(156, 39, 176, 0.1);
+}
+
+/* Operation tags (endpoint categories) */
+.swagger-ui .opblock-tag {
+    border-bottom: 2px solid var(--primary-color);
+    font-size: 20px;
+    padding: 15px 20px;
+}
+
+.swagger-ui .opblock-tag:hover {
+    background: rgba(76, 175, 80, 0.05);
+}
+
+/* Try it out button */
+.swagger-ui .btn.try-out__btn {
+    background-color: var(--primary-color);
+    color: white;
+    border-color: var(--primary-color);
+}
+
+.swagger-ui .btn.try-out__btn:hover {
+    background-color: #45a049;
+    border-color: #45a049;
+}
+
+/* Execute button */
+.swagger-ui .btn.execute {
+    background-color: var(--secondary-color);
+    color: white;
+    border-color: var(--secondary-color);
+}
+
+.swagger-ui .btn.execute:hover {
+    background-color: #1976D2;
+    border-color: #1976D2;
+}
+
+/* Authorization button */
+.swagger-ui .btn.authorize {
+    background-color: var(--accent-color);
+    color: white;
+    border-color: var(--accent-color);
+}
+
+.swagger-ui .btn.authorize:hover {
+    background-color: #F57C00;
+    border-color: #F57C00;
+}
+
+/* Response success */
+.swagger-ui .response.success {
+    border-color: var(--success-color);
+}
+
+/* Response error */
+.swagger-ui .response.error {
+    border-color: var(--error-color);
+}
+
+/* Parameter table */
+.swagger-ui table thead tr th {
+    background-color: var(--primary-color);
+    color: white;
+}
+
+.swagger-ui .parameter__name.required span {
+    color: var(--error-color);
+}
+
+/* Schema model */
+.swagger-ui .model-box {
+    background-color: #f9f9f9;
+    border: 1px solid #e0e0e0;
+}
+
+.swagger-ui .model-box .model-title {
+    color: var(--primary-color);
+}
+
+/* File upload input */
+.swagger-ui .opblock-body input[type="file"] {
+    border: 2px dashed var(--primary-color);
+    padding: 20px;
+    background-color: #f9f9f9;
+}
+
+.swagger-ui .opblock-body input[type="file"]:hover {
+    border-color: #45a049;
+    background-color: #f0f0f0;
+}
+
+/* Response headers */
+.swagger-ui .response-col_status {
+    font-weight: bold;
+}
+
+.swagger-ui .response-col_status.response-200 {
+    color: var(--success-color);
+}
+
+.swagger-ui .response-col_status.response-400,
+.swagger-ui .response-col_status.response-401,
+.swagger-ui .response-col_status.response-403,
+.swagger-ui .response-col_status.response-404 {
+    color: var(--error-color);
+}
+
+/* Endpoint summary */
+.swagger-ui .opblock-summary-description {
+    font-weight: 500;
+    color: #333;
+}
+
+/* Scrollbar styling */
+.swagger-ui ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.swagger-ui ::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+.swagger-ui ::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 5px;
+}
+
+.swagger-ui ::-webkit-scrollbar-thumb:hover {
+    background: #45a049;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .swagger-ui .topbar-wrapper .link:after {
+        font-size: 18px;
+    }
+    
+    .swagger-ui .info .title {
+        font-size: 24px;
+    }
+}
+
+/* Authentication modal */
+.swagger-ui .dialog-ux .modal-ux-header h3 {
+    color: var(--primary-color);
+}
+
+/* Code blocks */
+.swagger-ui .highlight-code {
+    background-color: #f5f5f5;
+}
+
+.swagger-ui .highlight-code .microlight {
+    font-family: 'Courier New', Courier, monospace;
+}
+
+/* Lock icon for authenticated endpoints */
+.swagger-ui .authorization__btn.locked svg {
+    fill: var(--success-color);
+}
+
+.swagger-ui .authorization__btn.unlocked svg {
+    fill: var(--error-color);
+}

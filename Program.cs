@@ -6,6 +6,7 @@ using Taxi_API.Data;
 using Taxi_API.Services;
 using System.Text;
 using Microsoft.OpenApi.Models;
+using System.Reflection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -44,7 +45,7 @@ builder.Services.AddScoped<IdramPaymentService>();
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IPayPaymentService>();
 
-// Register IOcrService implementation (TesseractOcrService) in DI.
+// Register IOcrService implementation (Tesseract OcrService) in DI.
 builder.Services.AddSingleton<IOcrService, TesseractOcrService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
@@ -72,8 +73,147 @@ builder.Services
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    // Order operations by relative path (alphabetical) so auth appears before login
-    c.OrderActionsBy(apiDesc => apiDesc.RelativePath);
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "Zeyro Taxi API",
+        Version = "v1",
+        Description = @"
+# Zeyro Taxi Backend API
+
+Complete REST API for the Zeyro Taxi platform supporting:
+- **User & Driver Authentication** (SMS-based verification)
+- **Order Management** (Taxi, Delivery, Scheduled rides)
+- **Driver Profile Management** (Document upload with OCR)
+- **Payment Integration** (Stripe, Idram, IPay)
+- **Voice AI** (Speech-to-text, Text-to-speech, Chat)
+- **Real-time Communication** (WebSocket support)
+- **Location Tracking** (GPS coordinates)
+
+## Authentication Flow
+
+### For Users (Clients):
+1. `POST /api/auth/request-code` - Request SMS verification code
+2. `POST /api/auth/verify` - Verify the code
+3. `POST /api/auth/auth` - Get JWT token
+4. Use token in `Authorization: Bearer {token}` header
+
+### For Drivers:
+1. `POST /api/driver/request-code` - Request SMS verification code
+2. `POST /api/driver/verify` - Verify the code (marks as driver)
+3. `POST /api/driver/auth` - Get JWT token
+4. Use token in `Authorization: Bearer {token}` header
+
+## WebSocket Connection
+Connect to `/ws?userId={guid}&role=driver|user` for real-time updates.
+
+## File Upload Endpoints
+Several endpoints support multipart/form-data for file uploads:
+- Driver profile submission (base64 encoded images)
+- Driver identity documents (multipart file upload)
+- Voice audio upload
+
+## API Categories
+- **Auth**: User authentication and session management
+- **Driver**: Driver-specific authentication and management
+- **Orders**: Trip/delivery order management
+- **Payments**: Payment processing (Stripe, Idram, IPay)
+- **Voice**: AI-powered voice and chat features
+- **Schedule**: Scheduled ride management
+",
+        Contact = new OpenApiContact
+        {
+            Name = "Zeyro Taxi Support",
+            Email = "support@zeyro.space",
+            Url = new Uri("https://zeyro.space")
+        },
+        License = new OpenApiLicense
+        {
+            Name = "Proprietary",
+            Url = new Uri("https://zeyro.space/license")
+        }
+    });
+
+    // JWT Bearer Authentication
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = @"JWT Authorization header using the Bearer scheme.
+                      Enter 'Bearer' [space] and then your token in the text input below.
+                      Example: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+        BearerFormat = "JWT"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                },
+                Scheme = "oauth2",
+                Name = "Bearer",
+                In = ParameterLocation.Header
+            },
+            new List<string>()
+        }
+    });
+
+    // Enable annotations for better documentation
+    c.EnableAnnotations();
+
+    // Order operations by controller and then by path
+    c.OrderActionsBy(apiDesc => $"{apiDesc.ActionDescriptor.RouteValues["controller"]}_{apiDesc.RelativePath}");
+
+    // Tag controllers for better organization
+    c.TagActionsBy(api =>
+    {
+        var controllerName = api.ActionDescriptor.RouteValues["controller"];
+        return controllerName switch
+        {
+            "Auth" => new[] { "01. User Authentication" },
+            "Driver" when api.RelativePath?.Contains("/identity") == true => new[] { "03. Driver Identity & Documents" },
+            "Driver" when api.HttpMethod == "POST" && (api.RelativePath?.Contains("/request-code") == true || 
+                          api.RelativePath?.Contains("/verify") == true || 
+                          api.RelativePath?.Contains("/auth") == true ||
+                          api.RelativePath?.Contains("/login") == true ||
+                          api.RelativePath?.Contains("/logout") == true) => new[] { "02. Driver Authentication" },
+            "Driver" => new[] { "04. Driver Profile & Management" },
+            "Orders" => new[] { "05. Orders & Trips" },
+            "Payments" => new[] { "06. Payments (Stripe)" },
+            "Idram" => new[] { "07. Payments (Idram)" },
+            "IPay" => new[] { "08. Payments (IPay)" },
+            "Voice" => new[] { "09. Voice AI & Chat" },
+            "Schedule" => new[] { "10. Scheduled Rides" },
+            _ => new[] { controllerName ?? "Other" }
+        };
+    });
+
+    // Include XML comments if available
+    var xmlFile = $"{Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+    {
+        c.IncludeXmlComments(xmlPath);
+    }
+
+    // Custom schema IDs to avoid conflicts
+    c.CustomSchemaIds(type => type.FullName);
+
+    // Support for file uploads
+    c.OperationFilter<FileUploadOperationFilter>();
+
+    // Map known types for better schema generation
+    c.MapType<IFormFile>(() => new OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
 });
 
 var app = builder.Build();
@@ -101,17 +241,36 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
-// Swagger — RELATIVE PATHS ONLY (no localhost)
-app.UseSwagger();
+// Enable Swagger in all environments for easier testing
+app.UseSwagger(c =>
+{
+    c.RouteTemplate = "swagger/{documentName}/swagger.json";
+});
 
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Taxi API V1");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Zeyro Taxi API V1");
     c.RoutePrefix = "swagger";
+    c.DocumentTitle = "Zeyro Taxi API Documentation";
+    c.DefaultModelsExpandDepth(2);
+    c.DefaultModelRendering(Swashbuckle.AspNetCore.SwaggerUI.ModelRendering.Model);
+    c.DisplayRequestDuration();
+    c.EnableDeepLinking();
+    c.EnableFilter();
+    c.ShowExtensions();
+    c.EnableValidator();
+    c.SupportedSubmitMethods(Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Get, 
+                             Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Post,
+                             Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Put,
+                             Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Delete,
+                             Swashbuckle.AspNetCore.SwaggerUI.SubmitMethod.Patch);
+    
+    // Custom CSS for better UI
+    c.InjectStylesheet("/swagger-ui/custom.css");
 });
 
 // Root → Swagger (relative redirect)
-app.MapGet("/", () => Results.Redirect("/swagger"));
+app.MapGet("/", () => Results.Redirect("/swagger")).ExcludeFromDescription();
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -316,5 +475,44 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
         var lg = loggerFactory?.CreateLogger("EnsureDatabaseMigratedAsync");
         lg?.LogError(ex, "Failed to apply database migrations at startup. Ensure migrations are created and the process has write access to the database file.");
         throw;
+    }
+}
+
+// Custom operation filter for file upload endpoints
+public class FileUploadOperationFilter : Swashbuckle.AspNetCore.SwaggerGen.IOperationFilter
+{
+    public void Apply(Microsoft.OpenApi.Models.OpenApiOperation operation, Swashbuckle.AspNetCore.SwaggerGen.OperationFilterContext context)
+    {
+        var fileParameters = context.MethodInfo.GetParameters()
+            .Where(p => p.ParameterType == typeof(IFormFile) || 
+                       p.ParameterType == typeof(IEnumerable<IFormFile>) ||
+                       p.ParameterType == typeof(IFormFileCollection))
+            .ToList();
+
+        if (!fileParameters.Any())
+            return;
+
+        operation.RequestBody = new OpenApiRequestBody
+        {
+            Content = new Dictionary<string, OpenApiMediaType>
+            {
+                ["multipart/form-data"] = new OpenApiMediaType
+                {
+                    Schema = new OpenApiSchema
+                    {
+                        Type = "object",
+                        Properties = fileParameters.ToDictionary(
+                            p => p.Name ?? "file",
+                            p => new OpenApiSchema
+                            {
+                                Type = "string",
+                                Format = "binary"
+                            }
+                        ),
+                        Required = fileParameters.Select(p => p.Name ?? "file").ToHashSet()
+                    }
+                }
+            }
+        };
     }
 }
