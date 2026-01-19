@@ -4,6 +4,7 @@ using Taxi_API.Services;
 using Taxi_API.Data;
 using Taxi_API.Models;
 using System.Text.Json;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace Taxi_API.Controllers
 {
@@ -20,18 +21,72 @@ namespace Taxi_API.Controllers
             _db = db;
         }
 
+        public class VoiceUploadRequest
+        {
+            public IFormFile File { get; set; } = null!;
+            public string Lang { get; set; } = "en";
+        }
+
+        /// <summary>
+        /// Upload an audio file for voice-to-text transcription with AI response
+        /// </summary>
+        /// <param name="request">Voice upload request containing audio file and language</param>
+        /// <returns>Returns audio file (WAV) with AI response. Check response headers for transcription and intent details</returns>
+        /// <response code="200">Returns WAV audio file with AI voice response</response>
+        /// <response code="400">No audio file provided or unsupported language</response>
+        /// <response code="401">Unauthorized - JWT token required</response>
+        /// <response code="502">Transcription, chat, or TTS service failed</response>
+        /// <remarks>
+        /// **Simple usage:** Just upload the audio file. The `lang` parameter is optional and defaults to "en".
+        /// 
+        /// **Supported audio formats:**
+        /// - WAV (.wav)
+        /// - MP3 (.mp3)
+        /// - M4A (.m4a)
+        /// - OGG (.ogg)
+        /// 
+        /// **Response headers contain:**
+        /// - `X-Transcription`: Your spoken text (transcribed)
+        /// - `X-Intent`: Detected intent (chat, taxi, delivery, or schedule)
+        /// - `X-Language`: Language used
+        /// - `X-Order-Created`: "true" if an order was automatically created
+        /// - `X-Order-Id`: Order GUID if created
+        /// 
+        /// **Example:**
+        /// 
+        /// Minimal request (most common):
+        /// ```
+        /// POST /api/voice/upload
+        /// Content-Type: multipart/form-data
+        /// Authorization: Bearer YOUR_TOKEN
+        /// 
+        /// File: [your_audio.wav]
+        /// Lang: "en"
+        /// ```
+        /// 
+        /// With language specified:
+        /// ```
+        /// POST /api/voice/upload
+        /// Content-Type: multipart/form-data
+        /// Authorization: Bearer YOUR_TOKEN
+        /// 
+        /// File: [your_audio.wav]
+        /// Lang: "ru"
+        /// ```
+        /// </remarks>
         [HttpPost("upload")]
         [Authorize]
         [Consumes("multipart/form-data")]
-        public async Task<IActionResult> UploadVoice(
-            [FromForm] IFormFile file, 
-            [FromForm] string? lang, 
-            [FromForm] string? voice = null)
+        [SwaggerOperation(
+            Summary = "Upload audio file for AI voice transcription and response",
+            Description = "Upload an audio file (wav, mp3, m4a, ogg) to transcribe and get AI voice response"
+        )]
+        [ProducesResponseType(typeof(FileResult), 200, "audio/wav")]
+        public async Task<IActionResult> UploadVoice([FromForm] VoiceUploadRequest request)
         {
-            if (file == null || file.Length == 0) return BadRequest("No audio file provided");
+            if (request.File == null || request.File.Length == 0) return BadRequest("No audio file provided");
 
-            // default to English if not provided
-            lang ??= "en";
+            var lang = string.IsNullOrWhiteSpace(request.Lang) ? "en" : request.Lang;
 
             // Validate language
             var supportedLanguages = new[] { "en", "ru", "hy" };
@@ -41,7 +96,7 @@ namespace Taxi_API.Controllers
             }
 
             using var ms = new MemoryStream();
-            await file.CopyToAsync(ms);
+            await request.File.CopyToAsync(ms);
             ms.Position = 0;
 
             var text = await _openAi.TranscribeAsync(ms, lang);
@@ -107,8 +162,8 @@ namespace Taxi_API.Controllers
                 }
             }
 
-            // Voice input ALWAYS gets voice output
-            var audioBytes = await _openAi.SynthesizeSpeechAsync(reply, lang, voice);
+            // Voice input ALWAYS gets voice output (using default voice)
+            var audioBytes = await _openAi.SynthesizeSpeechAsync(reply, lang, null);
             if (audioBytes == null) return StatusCode(502, "TTS failed");
             
             // Return audio file with metadata in headers
@@ -127,6 +182,15 @@ namespace Taxi_API.Controllers
         // New translate endpoint
         public record TranslateRequest(string Text, string To, string? From = null, bool Audio = false, string? Voice = null);
 
+        /// <summary>
+        /// Translate text between supported languages
+        /// </summary>
+        /// <param name="req">Translation request containing text and target language</param>
+        /// <returns>Returns translated text as JSON, or audio file if Audio=true</returns>
+        /// <response code="200">Returns translation (JSON or audio file)</response>
+        /// <response code="400">Invalid request or unsupported language</response>
+        /// <response code="401">Unauthorized - JWT token required</response>
+        /// <response code="502">Translation or TTS service failed</response>
         [HttpPost("translate")]
         [Authorize]
         public async Task<IActionResult> Translate([FromBody] TranslateRequest req)
@@ -174,6 +238,15 @@ namespace Taxi_API.Controllers
         // Text chat endpoint - text input gets text output
         public record ChatRequest(string Text, string? Lang = null, string? Voice = null);
 
+        /// <summary>
+        /// Send text message to AI chat assistant
+        /// </summary>
+        /// <param name="req">Chat request containing text message and optional language</param>
+        /// <returns>Returns JSON response with AI reply and detected intent. Can create orders for taxi/delivery/schedule intents</returns>
+        /// <response code="200">Returns chat response with AI reply and metadata</response>
+        /// <response code="400">Invalid request or missing text</response>
+        /// <response code="401">Unauthorized - JWT token required</response>
+        /// <response code="502">Chat service failed</response>
         [HttpPost("chat")]
         [Authorize]
         public async Task<IActionResult> Chat([FromBody] ChatRequest req)

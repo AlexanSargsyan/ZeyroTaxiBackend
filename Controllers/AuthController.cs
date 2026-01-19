@@ -181,7 +181,7 @@ namespace Taxi_API.Controllers
             }
 
             var token = _tokenService.GenerateToken(user);
-            return Ok(new AuthResponse(token, session.Id.ToString()));
+            return Ok(new { token });
         }
 
         [HttpPost("logout")]

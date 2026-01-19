@@ -77,7 +77,8 @@ builder.Services
             ValidateAudience = false,
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = signingKey,
-            ValidateLifetime = true
+            ValidateLifetime = true,
+            ClockSkew = TimeSpan.Zero
         };
     });
 
@@ -205,12 +206,17 @@ Several endpoints support multipart/form-data for file uploads:
     // Custom schema IDs to avoid conflicts
     c.CustomSchemaIds(type => type.FullName);
 
-    // Map known types for better schema generation
+    // Simplify IFormFile schema - show only as file upload
     c.MapType<IFormFile>(() => new OpenApiSchema
     {
         Type = "string",
-        Format = "binary"
+        Format = "binary",
+        Description = "Upload file"
     });
+    
+    // Use filters to clean up file upload parameters
+    c.SchemaFilter<FileUploadSchemaFilter>();
+    c.OperationFilter<FileUploadOperationFilter>();
 });
 
 var app = builder.Build();
