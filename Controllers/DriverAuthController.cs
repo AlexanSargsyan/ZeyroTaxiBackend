@@ -69,8 +69,8 @@ namespace Taxi_API.Controllers
                 // Continue anyway
             }
 
-            // Always return code and session for now (matching regular auth behavior)
-            return Ok(new { sent = true, code = code, authSessionId = session.Id.ToString() });
+            // Return only sent status and code (NOT authSessionId)
+            return Ok(new { sent = true, code = code });
         }
 
         [HttpPost("resend")]
@@ -105,8 +105,8 @@ namespace Taxi_API.Controllers
                 // Continue anyway
             }
 
-            // Always return code and session for now (matching regular auth behavior)
-            return Ok(new { sent = true, code = session.Code, authSessionId = session.Id.ToString() });
+            // Return sent status and the new code
+            return Ok(new { sent = true, code = session.Code });
         }
 
 

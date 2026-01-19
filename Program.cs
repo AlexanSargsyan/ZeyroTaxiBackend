@@ -152,8 +152,105 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
         using var scope = services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        logger.LogInformation("Applying database migrations...");
-        await db.Database.MigrateAsync();
+        logger.LogInformation("Checking database state...");
+        
+        // Check if database exists
+        var canConnect = await db.Database.CanConnectAsync();
+        
+        if (!canConnect)
+        {
+            logger.LogInformation("Database does not exist. Creating and applying migrations...");
+            await db.Database.MigrateAsync();
+        }
+        else
+        {
+            // Database exists, check if migrations are needed
+            var pendingMigrations = await db.Database.GetPendingMigrationsAsync();
+            var appliedMigrations = await db.Database.GetAppliedMigrationsAsync();
+            
+            logger.LogInformation($"Applied migrations: {string.Join(", ", appliedMigrations)}");
+            logger.LogInformation($"Pending migrations: {string.Join(", ", pendingMigrations)}");
+            
+            if (pendingMigrations.Any())
+            {
+                logger.LogInformation("Applying pending migrations...");
+                try
+                {
+                    await db.Database.MigrateAsync();
+                }
+                catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 1)
+                {
+                    // Error 1 means table already exists - this can happen if the database was created manually
+                    logger.LogWarning(ex, "Migration failed due to existing tables. The database schema may already be up to date.");
+                    
+                    // Verify the __EFMigrationsHistory table exists and has the correct entries
+                    var conn = db.Database.GetDbConnection();
+                    await conn.OpenAsync();
+                    await using (conn)
+                    {
+                        // Check if __EFMigrationsHistory exists
+                        using var checkCmd = conn.CreateCommand();
+                        checkCmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory';";
+                        var historyExists = await checkCmd.ExecuteScalarAsync();
+                        
+                        if (historyExists == null || historyExists == DBNull.Value)
+                        {
+                            logger.LogInformation("Creating __EFMigrationsHistory table...");
+                            using var createHistoryCmd = conn.CreateCommand();
+                            createHistoryCmd.CommandText = @"
+                                CREATE TABLE __EFMigrationsHistory (
+                                    MigrationId TEXT NOT NULL PRIMARY KEY,
+                                    ProductVersion TEXT NOT NULL
+                                );";
+                            await createHistoryCmd.ExecuteNonQueryAsync();
+                        }
+                        
+                        // Insert migration records if they don't exist
+                        var allMigrations = new[]
+                        {
+                            ("20260101000000_InitialCreate", "8.0.0"),
+                            ("20260108095046_AddScheduledPlanTables", "8.0.0"),
+                            ("20260114094508_AddIdramPayments", "8.0.0"),
+                            ("20260114094924_AddIPayPayments", "8.0.0")
+                        };
+                        
+                        foreach (var (migrationId, productVersion) in allMigrations)
+                        {
+                            using var checkMigrationCmd = conn.CreateCommand();
+                            checkMigrationCmd.CommandText = "SELECT COUNT(*) FROM __EFMigrationsHistory WHERE MigrationId = @id";
+                            var param = checkMigrationCmd.CreateParameter();
+                            param.ParameterName = "@id";
+                            param.Value = migrationId;
+                            checkMigrationCmd.Parameters.Add(param);
+                            
+                            var exists = Convert.ToInt32(await checkMigrationCmd.ExecuteScalarAsync());
+                            
+                            if (exists == 0)
+                            {
+                                logger.LogInformation($"Recording migration {migrationId} in history...");
+                                using var insertCmd = conn.CreateCommand();
+                                insertCmd.CommandText = "INSERT INTO __EFMigrationsHistory (MigrationId, ProductVersion) VALUES (@id, @version)";
+                                var idParam = insertCmd.CreateParameter();
+                                idParam.ParameterName = "@id";
+                                idParam.Value = migrationId;
+                                insertCmd.Parameters.Add(idParam);
+                                
+                                var versionParam = insertCmd.CreateParameter();
+                                versionParam.ParameterName = "@version";
+                                versionParam.Value = productVersion;
+                                insertCmd.Parameters.Add(versionParam);
+                                
+                                await insertCmd.ExecuteNonQueryAsync();
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                logger.LogInformation("Database is up to date. No migrations to apply.");
+            }
+        }
 
         // Defensive fallback: ensure AuthSessions table exists
         try

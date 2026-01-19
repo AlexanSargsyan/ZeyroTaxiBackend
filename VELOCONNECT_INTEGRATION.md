@@ -101,7 +101,7 @@ All authentication endpoints now use Veloconnect to send SMS verification codes:
 ### 1. Test Client Authentication
 
 ```bash
-# Request code
+# Request code (returns sent and code, NOT authSessionId)
 curl -X POST "http://localhost:5000/api/auth/request-code" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678", "name": "Test User"}'
@@ -109,38 +109,75 @@ curl -X POST "http://localhost:5000/api/auth/request-code" \
 # Expected response:
 # {
 #   "sent": true,
-#   "code": "123456",
-#   "authSessionId": "guid-here"
+#   "code": "123456"
 # }
 
-# Resend code
+# Resend code (returns sent and new code)
 curl -X POST "http://localhost:5000/api/auth/resend" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678"}'
 
-# Verify code
+# Expected response:
+# {
+#   "sent": true,
+#   "code": "654321"
+# }
+
+# Verify code (returns authSessionId)
 curl -X POST "http://localhost:5000/api/auth/verify" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678", "code": "123456", "name": "Test User"}'
+
+# Expected response:
+# {
+#   "authSessionId": "guid-here"
+# }
+
+# Get token using authSessionId
+curl -X POST "http://localhost:5000/api/auth/auth" \
+  -H "Content-Type: application/json" \
+  -d '{"authSessionId": "guid-here", "code": "123456"}'
 ```
 
 ### 2. Test Driver Authentication
 
 ```bash
-# Request code
+# Request code (returns sent and code, NOT authSessionId)
 curl -X POST "http://localhost:5000/api/driver/request-code" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678", "name": "Test Driver"}'
 
-# Resend code
+# Expected response:
+# {
+#   "sent": true,
+#   "code": "123456"
+# }
+
+# Resend code (returns sent and new code)
 curl -X POST "http://localhost:5000/api/driver/resend" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678"}'
 
-# Verify code
+# Expected response:
+# {
+#   "sent": true,
+#   "code": "654321"
+# }
+
+# Verify code (returns authSessionId)
 curl -X POST "http://localhost:5000/api/driver/verify" \
   -H "Content-Type: application/json" \
   -d '{"phone": "+37412345678", "code": "123456", "name": "Test Driver"}'
+
+# Expected response:
+# {
+#   "authSessionId": "guid-here"
+# }
+
+# Get token using authSessionId
+curl -X POST "http://localhost:5000/api/driver/auth" \
+  -H "Content-Type: application/json" \
+  -d '{"authSessionId": "guid-here", "code": "123456"}'
 ```
 
 ## Logging

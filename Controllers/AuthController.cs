@@ -83,25 +83,8 @@ namespace Taxi_API.Controllers
                 // Continue anyway and return the code
             }
 
-            // Check if we should return the code in response
-            var returnCodeInResponse = _config.GetValue<bool>("Auth:ReturnCodeInResponse", false);
-            
-            // Fallback: try reading the section directly
-            if (!returnCodeInResponse)
-            {
-                var authSection = _config.GetSection("Auth");
-                if (authSection.Exists())
-                {
-                    var returnCodeValue = authSection["ReturnCodeInResponse"];
-                    if (!string.IsNullOrEmpty(returnCodeValue))
-                    {
-                        bool.TryParse(returnCodeValue, out returnCodeInResponse);
-                    }
-                }
-            }
-
-            // Always return code and session for now (can be controlled by config later)
-            return Ok(new { Sent = true, Code = code, AuthSessionId = session.Id.ToString() });
+            // Return only sent status and code (NOT authSessionId)
+            return Ok(new { Sent = true, Code = code });
         }
 
         // Diagnostic endpoint to check configuration
@@ -156,7 +139,8 @@ namespace Taxi_API.Controllers
                 // Continue anyway
             }
 
-            return Ok(new { Sent = true, Code = session.Code, AuthSessionId = session.Id.ToString() });
+            // Return sent status and the new code
+            return Ok(new { Sent = true, Code = session.Code });
         }
 
         [HttpPost("verify")]
