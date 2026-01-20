@@ -19,8 +19,7 @@ Run locally:
 
 The API binds to port 5000 inside the container / process. Open the Swagger UI at:
 - http://localhost:5000/swagger
-- http://my-public-api-alb-1517396588.us-east-1.elb.amazonaws.com/swagger
-- http://zeyro.space/swagger
+- https://api.zeyro.space/swagger
 
 Configuration
 -------------
