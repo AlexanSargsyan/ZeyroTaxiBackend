@@ -372,11 +372,8 @@ namespace Taxi_API.Controllers
 
         [Authorize]
         [HttpGet("trips")]
-        public async Task<IActionResult> GetTrips([FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] string? status = null, [FromQuery] bool asDriver = false)
+        public async Task<IActionResult> GetTrips([FromQuery] string? status = null, [FromQuery] bool asDriver = false)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-
             var userId = GetUserIdFromClaims();
             if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
@@ -395,12 +392,8 @@ namespace Taxi_API.Controllers
                 q = q.Where(o => o.Status == status);
             }
 
-            var total = await q.CountAsync();
-
             var items = await q
                 .OrderByDescending(o => o.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
                 .Select(o => new
                 {
                     id = o.Id,
@@ -437,16 +430,13 @@ namespace Taxi_API.Controllers
                 })
                 .ToListAsync();
 
-            return Ok(new { total, page, pageSize, items });
+            return Ok(items);
         }
 
         [Authorize]
         [HttpGet("reviews")]
-        public async Task<IActionResult> GetReviews([FromQuery] Guid? driverId = null, [FromQuery] int page = 1, [FromQuery] int pageSize = 20, [FromQuery] int? minRating = null)
+        public async Task<IActionResult> GetReviews([FromQuery] Guid? driverId = null, [FromQuery] int? minRating = null)
         {
-            if (page < 1) page = 1;
-            if (pageSize < 1) pageSize = 20;
-
             IQueryable<Order> q = _db.Orders.Where(o => o.Rating.HasValue && !string.IsNullOrEmpty(o.Review));
 
             if (driverId.HasValue)
@@ -459,12 +449,8 @@ namespace Taxi_API.Controllers
                 q = q.Where(o => o.Rating >= minRating.Value);
             }
 
-            var total = await q.CountAsync();
-
             var items = await q
                 .OrderByDescending(o => o.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
                 .Select(o => new
                 {
                     orderId = o.Id,
@@ -480,7 +466,7 @@ namespace Taxi_API.Controllers
                 })
                 .ToListAsync();
 
-            return Ok(new { total, page, pageSize, items });
+            return Ok(items);
         }
 
         [Authorize]
