@@ -29,7 +29,11 @@ namespace Taxi_API.Services
 
             if (string.IsNullOrWhiteSpace(_apiKey))
             {
-                _logger.LogWarning("OpenAI API key not configured. OpenAI features will not work. Set 'OpenAI:ApiKey' via configuration or environment variable 'OpenAI__ApiKey'/'OPENAI_API_KEY'.");
+                _logger.LogWarning("?? OpenAI API key not configured. OpenAI features will not work. Set 'OpenAI:ApiKey' via configuration or environment variable 'OpenAI__ApiKey'/'OPENAI_API_KEY'.");
+            }
+            else
+            {
+                _logger.LogInformation("? OpenAI API key configured (starts with: {prefix})", _apiKey.Substring(0, Math.Min(10, _apiKey.Length)));
             }
 
             _http = new HttpClient();
@@ -67,44 +71,77 @@ namespace Taxi_API.Services
 
         public async Task<string?> ChatAsync(string prompt, string language)
         {
-            var url = "https://api.openai.com/v1/chat/completions";
-
-            // Map short language code to human-readable name for instructions
-            var langName = language switch
+            if (string.IsNullOrWhiteSpace(_apiKey))
             {
-                "hy" => "Armenian",
-                "ru" => "Russian",
-                "en" => "English",
-                _ => language
-            };
-
-            var system = $"You are an assistant for a taxi service. Recognize keywords: taxi, delivery, schedule. Always reply concisely in {langName}. If user intent is taxi/delivery/schedule return a short JSON object with fields 'action' and 'details' and then a brief human-readable sentence in the same language.";
-
-            var messages = new[] {
-                new { role = "system", content = system },
-                new { role = "user", content = prompt }
-            };
-
-            var payload = new
-            {
-                model = "gpt-4o-mini",
-                messages,
-                max_tokens = 300,
-                temperature = 0.2
-            };
-
-            var json = JsonSerializer.Serialize(payload);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-            var res = await _http.PostAsync(url, content);
-            if (!res.IsSuccessStatusCode) return null;
-            var resJson = await res.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(resJson);
-            if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
-            {
-                var message = choices[0].GetProperty("message").GetProperty("content").GetString();
-                return message;
+                _logger.LogError("OpenAI API key is not configured. Cannot perform chat.");
+                return null;
             }
-            return null;
+
+            try
+            {
+                var url = "https://api.openai.com/v1/chat/completions";
+
+                // Map short language code to human-readable name for instructions
+                var langName = language switch
+                {
+                    "hy" => "Armenian",
+                    "ru" => "Russian",
+                    "en" => "English",
+                    _ => language
+                };
+
+                var system = $"You are an assistant for a taxi service. Recognize keywords: taxi, delivery, schedule. Always reply concisely in {langName}. If user intent is taxi/delivery/schedule return a short JSON object with fields 'action' and 'details' and then a brief human-readable sentence in the same language.";
+
+                var messages = new[] {
+                    new { role = "system", content = system },
+                    new { role = "user", content = prompt }
+                };
+
+                var payload = new
+                {
+                    model = "gpt-4o-mini",
+                    messages,
+                    max_tokens = 300,
+                    temperature = 0.2
+                };
+
+                var json = JsonSerializer.Serialize(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                
+                _logger.LogInformation("Sending chat request to OpenAI for language: {language}, prompt length: {length}", language, prompt.Length);
+                var res = await _http.PostAsync(url, content);
+                
+                if (!res.IsSuccessStatusCode)
+                {
+                    var errorBody = await res.Content.ReadAsStringAsync();
+                    _logger.LogError("OpenAI chat failed with status {StatusCode}: {ErrorBody}", 
+                        res.StatusCode, errorBody);
+                    return null;
+                }
+                
+                var resJson = await res.Content.ReadAsStringAsync();
+                _logger.LogInformation("OpenAI chat successful, response length: {length}", resJson.Length);
+                
+                using var doc = JsonDocument.Parse(resJson);
+                if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+                {
+                    var message = choices[0].GetProperty("message").GetProperty("content").GetString();
+                    return message;
+                }
+                
+                _logger.LogWarning("OpenAI chat response did not contain valid choices");
+                return null;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "HTTP request error during OpenAI chat");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during OpenAI chat");
+                return null;
+            }
         }
 
         public async Task<byte[]?> SynthesizeSpeechAsync(string text, string language, string? voice = null)

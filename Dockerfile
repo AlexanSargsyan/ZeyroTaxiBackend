@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 ENV ASPNETCORE_URLS=http://+:5000
+ENV OpenAI__ApiKey=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
 
 COPY --from=publish /app/publish .
 
