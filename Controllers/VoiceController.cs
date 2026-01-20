@@ -108,7 +108,7 @@ namespace Taxi_API.Controllers
 
             var taxiKeywords = new[] { "taxi", "տաքսի", "такси" };
             var deliveryKeywords = new[] { "delivery", "առաքում", "доставка" };
-            var scheduleKeywords = new[] { "schedule", "ժամ", "график", "расписание" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "графիկ", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
@@ -185,18 +185,154 @@ namespace Taxi_API.Controllers
         /// <summary>
         /// Translate text between supported languages
         /// </summary>
-        /// <param name="req">Translation request containing text and target language</param>
+        /// <param name="input">Translation request - can be plain text (translates to English) or JSON object with text, target language, and options</param>
         /// <returns>Returns translated text as JSON, or audio file if Audio=true</returns>
         /// <response code="200">Returns translation (JSON or audio file)</response>
         /// <response code="400">Invalid request or unsupported language</response>
         /// <response code="401">Unauthorized - JWT token required</response>
         /// <response code="502">Translation or TTS service failed</response>
+        /// <remarks>
+        /// **Flexible input format - accepts both:**
+        /// 
+        /// **Option 1: Plain text string (translates to English by default)**
+        /// ```json
+        /// "Բարև"
+        /// ```
+        /// Result: Translates "Բարև" (Armenian) to English → "Hello"
+        /// 
+        /// **Option 2: JSON object (full control)**
+        /// ```json
+        /// {
+        ///   "text": "Բարև",
+        ///   "to": "en",
+        ///   "from": "hy",
+        ///   "audio": false
+        /// }
+        /// ```
+        /// 
+        /// **Supported languages:**
+        /// - `"en"` - English
+        /// - `"ru"` - Russian (русский)
+        /// - `"hy"` - Armenian (հայերեն)
+        /// 
+        /// **Parameters:**
+        /// - `text` (required): Text to translate
+        /// - `to` (optional): Target language (default: "en")
+        /// - `from` (optional): Source language (default: auto-detect)
+        /// - `audio` (optional): Return audio file instead of text (default: false)
+        /// - `voice` (optional): TTS voice ID (only used if audio=true)
+        /// 
+        /// **Examples:**
+        /// 
+        /// Simple translation to English:
+        /// ```json
+        /// "Привет"
+        /// ```
+        /// Result: "Hello"
+        /// 
+        /// Translate to specific language:
+        /// ```json
+        /// {
+        ///   "text": "Hello",
+        ///   "to": "hy"
+        /// }
+        /// ```
+        /// Result: "Բարև"
+        /// 
+        /// Get audio translation:
+        /// ```json
+        /// {
+        ///   "text": "Hello",
+        ///   "to": "ru",
+        ///   "audio": true
+        /// }
+        /// ```
+        /// Result: Audio file (WAV) with Russian speech "Привет"
+        /// </remarks>
         [HttpPost("translate")]
         [Authorize]
-        public async Task<IActionResult> Translate([FromBody] TranslateRequest req)
+        public async Task<IActionResult> Translate([FromBody] object input)
         {
-            if (req == null || string.IsNullOrWhiteSpace(req.Text) || string.IsNullOrWhiteSpace(req.To))
-                return BadRequest("Text and To language are required");
+            // Parse input - accept both plain string and TranslateRequest object
+            string text;
+            string to = "en"; // Default to English
+            string? from = null;
+            bool audio = false;
+            string? voice = null;
+
+            if (input is System.Text.Json.JsonElement jsonElement)
+            {
+                if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    // Plain string input - translate to English
+                    text = jsonElement.GetString() ?? string.Empty;
+                }
+                else if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    // JSON object input
+                    if (jsonElement.TryGetProperty("text", out var textProp))
+                    {
+                        text = textProp.GetString() ?? string.Empty;
+                    }
+                    else if (jsonElement.TryGetProperty("Text", out var textPropCapital))
+                    {
+                        text = textPropCapital.GetString() ?? string.Empty;
+                    }
+                    else
+                    {
+                        return BadRequest("Text property is required in the request object");
+                    }
+
+                    if (jsonElement.TryGetProperty("to", out var toProp))
+                    {
+                        to = toProp.GetString() ?? "en";
+                    }
+                    else if (jsonElement.TryGetProperty("To", out var toPropCapital))
+                    {
+                        to = toPropCapital.GetString() ?? "en";
+                    }
+
+                    if (jsonElement.TryGetProperty("from", out var fromProp))
+                    {
+                        from = fromProp.GetString();
+                    }
+                    else if (jsonElement.TryGetProperty("From", out var fromPropCapital))
+                    {
+                        from = fromPropCapital.GetString();
+                    }
+
+                    if (jsonElement.TryGetProperty("audio", out var audioProp))
+                    {
+                        audio = audioProp.GetBoolean();
+                    }
+                    else if (jsonElement.TryGetProperty("Audio", out var audioPropCapital))
+                    {
+                        audio = audioPropCapital.GetBoolean();
+                    }
+
+                    if (jsonElement.TryGetProperty("voice", out var voiceProp))
+                    {
+                        voice = voiceProp.GetString();
+                    }
+                    else if (jsonElement.TryGetProperty("Voice", out var voicePropCapital))
+                    {
+                        voice = voicePropCapital.GetString();
+                    }
+                }
+                else
+                {
+                    return BadRequest("Invalid input format. Expected plain text string or JSON object with 'text' property");
+                }
+            }
+            else
+            {
+                return BadRequest("Invalid input format");
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return BadRequest("Text is required and cannot be empty");
+            }
 
             // Normalize language codes and allow common synonyms
             string NormalizeLang(string l)
@@ -212,27 +348,27 @@ namespace Taxi_API.Controllers
                 };
             }
 
-            var from = string.IsNullOrWhiteSpace(req.From) ? "auto" : NormalizeLang(req.From) ?? "auto";
-            var to = NormalizeLang(req.To);
-            if (string.IsNullOrEmpty(to)) return BadRequest("Unsupported target language. Supported: hy (Armenian), ru (Russian), en (English)");
+            var fromLang = string.IsNullOrWhiteSpace(from) ? "auto" : NormalizeLang(from) ?? "auto";
+            var toLang = NormalizeLang(to);
+            if (string.IsNullOrEmpty(toLang)) return BadRequest("Unsupported target language. Supported: hy (Armenian), ru (Russian), en (English)");
 
             // Build prompt for translation
-            var prompt = from == "auto"
-                ? $"Translate the following text to {to} concisely, preserve meaning and do not add commentary. Text:\n{req.Text}"
-                : $"Translate the following text from {from} to {to} concisely, preserve meaning and do not add commentary. Text:\n{req.Text}";
+            var prompt = fromLang == "auto"
+                ? $"Translate the following text to {toLang} concisely, preserve meaning and do not add commentary. Text:\n{text}"
+                : $"Translate the following text from {fromLang} to {toLang} concisely, preserve meaning and do not add commentary. Text:\n{text}";
 
-            var translation = await _openAi.ChatAsync(prompt, to);
+            var translation = await _openAi.ChatAsync(prompt, toLang);
             if (translation == null) return StatusCode(502, "Translation failed");
 
-            if (req.Audio)
+            if (audio)
             {
                 // synthesize TTS in target language
-                var audioBytes = await _openAi.SynthesizeSpeechAsync(translation, to, req.Voice);
+                var audioBytes = await _openAi.SynthesizeSpeechAsync(translation, toLang, voice);
                 if (audioBytes == null) return StatusCode(502, "TTS failed");
                 return File(audioBytes, "audio/wav", "translation.wav");
             }
 
-            return Ok(new { text = req.Text, translation, from = from, to = to });
+            return Ok(new { text = text, translation, from = fromLang, to = toLang });
         }
 
         // Text chat endpoint - text input gets text output
@@ -336,7 +472,7 @@ namespace Taxi_API.Controllers
 
             var taxiKeywords = new[] { "taxi", "տաքսի", "такси" };
             var deliveryKeywords = new[] { "delivery", "առաքում", "доставка" };
-            var scheduleKeywords = new[] { "schedule", "ժամ", "график", "расписание" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "графիկ", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
