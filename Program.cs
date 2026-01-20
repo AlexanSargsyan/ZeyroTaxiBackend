@@ -125,12 +125,15 @@ Several endpoints support multipart/form-data for file uploads:
 - Voice audio upload
 
 ## API Categories
-- **Auth**: User authentication and session management
-- **Driver**: Driver-specific authentication and management
-- **Orders**: Trip/delivery order management
+- **User Authentication**: Client authentication and session management
+- **Driver Authentication**: Driver-specific authentication
+- **Driver Identity & Documents**: Document upload with OCR
+- **Driver Profile & Management**: Profile management and location updates
+- **Orders & Trips (Client)**: Client-side order management, estimates, and trip history
+- **Orders & Trips (Driver)**: Driver-side order acceptance, location updates, and trip lifecycle
 - **Payments**: Payment processing (Stripe, Idram, IPay)
-- **Voice**: AI-powered voice and chat features
-- **Schedule**: Scheduled ride management
+- **Voice AI & Chat**: AI-powered voice and chat features
+- **Scheduled Rides**: Scheduled ride management
 "
     });
 
@@ -185,7 +188,10 @@ Several endpoints support multipart/form-data for file uploads:
                           api.RelativePath?.Contains("/login") == true ||
                           api.RelativePath?.Contains("/logout") == true) => new[] { "Driver Authentication" },
             "Driver" => new[] { "Driver Profile & Management" },
-            "Orders" => new[] { "Orders & Trips" },
+            "Orders" when api.RelativePath?.Contains("/driver/accept") == true ||
+                         api.RelativePath?.Contains("/location/") == true ||
+                         api.RelativePath?.Contains("/map/") == true => new[] { "Orders & Trips (Driver)" },
+            "Orders" => new[] { "Orders & Trips (Client)" },
             "Payments" => new[] { "Payments (Stripe)" },
             "Idram" => new[] { "Payments (Idram)" },
             "IPay" => new[] { "Payments (IPay)" },
