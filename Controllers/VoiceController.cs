@@ -21,6 +21,27 @@ namespace Taxi_API.Controllers
             _db = db;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            return null;
+        }
+
         public class VoiceUploadRequest
         {
             public IFormFile File { get; set; } = null!;
@@ -145,10 +166,10 @@ namespace Taxi_API.Controllers
                         }
 
                         // Associate with current user
-                        var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-                        if (Guid.TryParse(userIdStr, out var userId))
+                        var userId = GetUserIdFromClaims();
+                        if (userId.HasValue)
                         {
-                            order.UserId = userId;
+                            order.UserId = userId.Value;
                             order.CreatedAt = DateTime.UtcNow;
                             _db.Orders.Add(order);
                             await _db.SaveChangesAsync();
@@ -507,10 +528,10 @@ namespace Taxi_API.Controllers
                         }
 
                         // Associate with current user if available
-                        var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-                        if (Guid.TryParse(userIdStr, out var userId))
+                        var userId = GetUserIdFromClaims();
+                        if (userId.HasValue)
                         {
-                            order.UserId = userId;
+                            order.UserId = userId.Value;
                             order.CreatedAt = DateTime.UtcNow;
                             _db.Orders.Add(order);
                             await _db.SaveChangesAsync();

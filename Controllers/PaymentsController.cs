@@ -20,6 +20,27 @@ namespace Taxi_API.Controllers
             _payments = payments;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            return null;
+        }
+
         public record AddCardRequest(string CardNumber, int ExpMonth, int ExpYear, string Cvc, bool MakeDefault = false);
 
         [Authorize]
@@ -28,18 +49,18 @@ namespace Taxi_API.Controllers
         {
             if (req == null || string.IsNullOrWhiteSpace(req.CardNumber)) return BadRequest("Card data required");
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
             // Tokenize via payment provider
             var token = await _payments.TokenizeCardAsync(req.CardNumber, req.ExpMonth, req.ExpYear, req.Cvc);
 
             // Save masked card info
             var last4 = req.CardNumber.Length >= 4 ? req.CardNumber[^4..] : req.CardNumber;
-            var card = new PaymentCard { UserId = userId, TokenHash = token, Last4 = last4, Brand = null, ExpMonth = req.ExpMonth, ExpYear = req.ExpYear, IsDefault = req.MakeDefault };
+            var card = new PaymentCard { UserId = userId.Value, TokenHash = token, Last4 = last4, Brand = null, ExpMonth = req.ExpMonth, ExpYear = req.ExpYear, IsDefault = req.MakeDefault };
             if (req.MakeDefault)
             {
-                var existing = await _db.PaymentCards.Where(c => c.UserId == userId).ToListAsync();
+                var existing = await _db.PaymentCards.Where(c => c.UserId == userId.Value).ToListAsync();
                 foreach (var e in existing) e.IsDefault = false;
             }
             _db.PaymentCards.Add(card);
@@ -52,10 +73,10 @@ namespace Taxi_API.Controllers
         [HttpGet("cards")]
         public async Task<IActionResult> ListCards()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
-            var cards = await _db.PaymentCards.Where(c => c.UserId == userId).Select(c => new { id = c.Id, last4 = c.Last4, brand = c.Brand, expMonth = c.ExpMonth, expYear = c.ExpYear, isDefault = c.IsDefault }).ToListAsync();
+            var cards = await _db.PaymentCards.Where(c => c.UserId == userId.Value).Select(c => new { id = c.Id, last4 = c.Last4, brand = c.Brand, expMonth = c.ExpMonth, expYear = c.ExpYear, isDefault = c.IsDefault }).ToListAsync();
             return Ok(cards);
         }
 
@@ -88,10 +109,10 @@ namespace Taxi_API.Controllers
         [HttpPost("charge")]
         public async Task<IActionResult> ChargeDefault([FromBody] ChargeRequest req)
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
-            var card = await _db.PaymentCards.FirstOrDefaultAsync(c => c.UserId == userId && c.IsDefault);
+            var card = await _db.PaymentCards.FirstOrDefaultAsync(c => c.UserId == userId.Value && c.IsDefault);
             if (card == null) return BadRequest("No default card");
 
             // charge in cents

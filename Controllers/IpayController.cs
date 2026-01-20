@@ -23,6 +23,27 @@ namespace Taxi_API.Controllers
             _logger = logger;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            return null;
+        }
+
         /// <summary>
         /// Create a new IPay payment
         /// </summary>
@@ -35,15 +56,15 @@ namespace Taxi_API.Controllers
                 return BadRequest("Invalid payment request");
             }
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId))
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue)
             {
-                return Unauthorized();
+                return Unauthorized("User ID claim not found in token");
             }
 
             // Generate unique order number if not provided
             var orderNumber = string.IsNullOrWhiteSpace(request.OrderNumber)
-                ? $"IPAY_{DateTime.UtcNow.Ticks}_{userId.ToString("N")[..8]}"
+                ? $"IPAY_{DateTime.UtcNow.Ticks}_{userId.Value.ToString("N")[..8]}"
                 : request.OrderNumber;
 
             try
@@ -64,7 +85,7 @@ namespace Taxi_API.Controllers
                 // Store payment in database
                 var payment = new IPayPayment
                 {
-                    UserId = userId,
+                    UserId = userId.Value,
                     OrderNumber = orderNumber,
                     IPayOrderId = registerResponse.OrderId ?? string.Empty,
                     Description = request.Description,
@@ -77,7 +98,7 @@ namespace Taxi_API.Controllers
                 await _db.SaveChangesAsync();
 
                 _logger.LogInformation("Created IPay payment for user {userId}, order {orderNumber}, IPay orderId {orderId}",
-                    userId, orderNumber, registerResponse.OrderId);
+                    userId.Value, orderNumber, registerResponse.OrderId);
 
                 return Ok(new IPayPaymentResponse
                 {

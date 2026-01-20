@@ -23,6 +23,27 @@ namespace Taxi_API.Controllers
             _logger = logger;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            return null;
+        }
+
         /// <summary>
         /// Generate Idram payment form data for client to submit
         /// </summary>
@@ -35,21 +56,21 @@ namespace Taxi_API.Controllers
                 return BadRequest("Invalid payment request");
             }
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId))
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue)
             {
-                return Unauthorized();
+                return Unauthorized("User ID claim not found in token");
             }
 
             // Generate a unique bill number if not provided
             var billNo = string.IsNullOrWhiteSpace(request.BillNo) 
-                ? $"BILL_{DateTime.UtcNow.Ticks}_{userId.ToString("N")[..8]}" 
+                ? $"BILL_{DateTime.UtcNow.Ticks}_{userId.Value.ToString("N")[..8]}" 
                 : request.BillNo;
 
             // Store payment intent in database
             var payment = new IdramPayment
             {
-                UserId = userId,
+                UserId = userId.Value,
                 BillNo = billNo,
                 Description = request.Description,
                 Amount = request.Amount,
@@ -83,7 +104,7 @@ namespace Taxi_API.Controllers
             }
 
             _logger.LogInformation("Created Idram payment for user {userId}, bill {billNo}, amount {amount}",
-                userId, billNo, request.Amount);
+                userId.Value, billNo, request.Amount);
 
             return Ok(formData);
         }

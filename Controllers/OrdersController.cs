@@ -23,6 +23,27 @@ namespace Taxi_API.Controllers
             _socketService = socketService;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            return null;
+        }
+
         private static double ToRadians(double deg) => deg * Math.PI / 180.0;
 
         private static double HaversineDistanceKm(double lat1, double lon1, double lat2, double lon2)
@@ -192,8 +213,8 @@ namespace Taxi_API.Controllers
         public async Task<IActionResult> RequestOrder([FromBody] Order order)
         {
             // create order and start searching for driver
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
             // Validate coordinates
             if (!order.PickupLat.HasValue || !order.DestLat.HasValue || !order.PickupLng.HasValue || !order.DestLng.HasValue)
@@ -202,7 +223,7 @@ namespace Taxi_API.Controllers
             }
 
             order.Id = Guid.NewGuid();
-            order.UserId = userId;
+            order.UserId = userId.Value;
             order.CreatedAt = DateTime.UtcNow;
 
             // If this is a scheduled order in the future, do not connect sockets or search drivers now
@@ -294,9 +315,9 @@ namespace Taxi_API.Controllers
             if (order == null) return NotFound();
 
             // only driver assigned to this order can update location
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            if (order.DriverId != userId) return Forbid();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
+            if (order.DriverId != userId.Value) return Forbid();
 
             // Broadcast to rider and driver (if connected)
             await _socketService.BroadcastCarLocationAsync(orderId, req.Lat, req.Lng);
@@ -336,9 +357,9 @@ namespace Taxi_API.Controllers
             if (order == null) return NotFound();
 
             // Ensure only the rider who created the order can rate
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            if (order.UserId != userId) return Forbid();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
+            if (order.UserId != userId.Value) return Forbid();
 
             // Only allow rating after completion
             if (order.Status != "completed") return BadRequest("Can rate only completed orders");
@@ -356,17 +377,17 @@ namespace Taxi_API.Controllers
             if (page < 1) page = 1;
             if (pageSize < 1) pageSize = 20;
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
             IQueryable<Order> q = _db.Orders.AsQueryable();
             if (asDriver)
             {
-                q = q.Where(o => o.DriverId == userId);
+                q = q.Where(o => o.DriverId == userId.Value);
             }
             else
             {
-                q = q.Where(o => o.UserId == userId);
+                q = q.Where(o => o.UserId == userId.Value);
             }
 
             if (!string.IsNullOrEmpty(status))
@@ -469,12 +490,12 @@ namespace Taxi_API.Controllers
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
             if (order == null) return NotFound();
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
             // mark driver for this order
-            order.DriverId = userId;
-            var driver = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            order.DriverId = userId.Value;
+            var driver = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value);
             if (driver != null)
             {
                 order.DriverName = driver.Name;
@@ -483,7 +504,7 @@ namespace Taxi_API.Controllers
             order.Status = "assigned";
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, "receiveOrder", new { driverId = userId, driverName = order.DriverName });
+            await _socketService.NotifyOrderEventAsync(order.Id, "receiveOrder", new { driverId = userId.Value, driverName = order.DriverName });
             return Ok(order);
         }
 
@@ -494,12 +515,12 @@ namespace Taxi_API.Controllers
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
             if (order == null) return NotFound();
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            if (order.DriverId != userId) return Forbid();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
+            if (order.DriverId != userId.Value) return Forbid();
 
             // send arrive event (status remains assigned until start)
-            await _socketService.NotifyOrderEventAsync(order.Id, "arrive", new { driverId = userId, driverName = order.DriverName });
+            await _socketService.NotifyOrderEventAsync(order.Id, "arrive", new { driverId = userId.Value, driverName = order.DriverName });
             return Ok(new { ok = true });
         }
 
@@ -510,14 +531,14 @@ namespace Taxi_API.Controllers
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
             if (order == null) return NotFound();
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            if (order.DriverId != userId) return Forbid();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
+            if (order.DriverId != userId.Value) return Forbid();
 
             order.Status = "on_trip";
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, "start", new { driverId = userId, driverName = order.DriverName });
+            await _socketService.NotifyOrderEventAsync(order.Id, "start", new { driverId = userId.Value, driverName = order.DriverName });
             return Ok(order);
         }
 
@@ -528,15 +549,15 @@ namespace Taxi_API.Controllers
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
             if (order == null) return NotFound();
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
-            if (order.DriverId != userId) return Forbid();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
+            if (order.DriverId != userId.Value) return Forbid();
 
             order.Status = "completed";
             order.CompletedAt = DateTime.UtcNow;
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, "complete", new { driverId = userId, driverName = order.DriverName });
+            await _socketService.NotifyOrderEventAsync(order.Id, "complete", new { driverId = userId.Value, driverName = order.DriverName });
             return Ok(order);
         }
 
@@ -547,18 +568,18 @@ namespace Taxi_API.Controllers
             var order = await _db.Orders.FirstOrDefaultAsync(o => o.Id == id);
             if (order == null) return NotFound();
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (!userId.HasValue) return Unauthorized("User ID claim not found in token");
 
             // allow driver or rider to cancel
-            if (order.UserId != userId && order.DriverId != userId) return Forbid();
+            if (order.UserId != userId.Value && order.DriverId != userId.Value) return Forbid();
 
             order.Status = "cancelled";
             order.CancelledAt = DateTime.UtcNow;
             order.CancelReason = reason;
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, "cancelOrder", new { by = userId, reason });
+            await _socketService.NotifyOrderEventAsync(order.Id, "cancelOrder", new { by = userId.Value, reason });
             return Ok(order);
         }
     }
