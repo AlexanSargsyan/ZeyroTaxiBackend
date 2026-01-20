@@ -241,28 +241,94 @@ namespace Taxi_API.Controllers
         /// <summary>
         /// Send text message to AI chat assistant
         /// </summary>
-        /// <param name="req">Chat request containing text message and optional language</param>
+        /// <param name="req">Chat request - can be either plain text string or JSON object with text and optional language</param>
         /// <returns>Returns JSON response with AI reply and detected intent. Can create orders for taxi/delivery/schedule intents</returns>
         /// <response code="200">Returns chat response with AI reply and metadata</response>
         /// <response code="400">Invalid request or missing text</response>
         /// <response code="401">Unauthorized - JWT token required</response>
         /// <response code="502">Chat service failed</response>
+        /// <remarks>
+        /// **Flexible input format - accepts both:**
+        /// 
+        /// **Option 1: Plain text string (simple)**
+        /// ```json
+        /// "Hello, I need a taxi"
+        /// ```
+        /// 
+        /// **Option 2: JSON object (with language control)**
+        /// ```json
+        /// {
+        ///   "text": "Hello, I need a taxi",
+        ///   "lang": "en"
+        /// }
+        /// ```
+        /// 
+        /// Both formats work identically. Use plain text for simplicity or JSON object for language control.
+        /// </remarks>
         [HttpPost("chat")]
         [Authorize]
-        public async Task<IActionResult> Chat([FromBody] ChatRequest req)
+        public async Task<IActionResult> Chat([FromBody] object input)
         {
-            if (req == null || string.IsNullOrWhiteSpace(req.Text)) return BadRequest("Text is required");
+            // Parse input - accept both plain string and ChatRequest object
+            string text;
+            string lang = "en";
 
-            var lang = string.IsNullOrWhiteSpace(req.Lang) ? "en" : req.Lang.ToLower();
-            
+            if (input is System.Text.Json.JsonElement jsonElement)
+            {
+                if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.String)
+                {
+                    // Plain string input
+                    text = jsonElement.GetString() ?? string.Empty;
+                }
+                else if (jsonElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    // JSON object input
+                    if (jsonElement.TryGetProperty("text", out var textProp))
+                    {
+                        text = textProp.GetString() ?? string.Empty;
+                    }
+                    else if (jsonElement.TryGetProperty("Text", out var textPropCapital))
+                    {
+                        text = textPropCapital.GetString() ?? string.Empty;
+                    }
+                    else
+                    {
+                        return BadRequest("Text property is required in the request object");
+                    }
+
+                    if (jsonElement.TryGetProperty("lang", out var langProp))
+                    {
+                        lang = langProp.GetString() ?? "en";
+                    }
+                    else if (jsonElement.TryGetProperty("Lang", out var langPropCapital))
+                    {
+                        lang = langPropCapital.GetString() ?? "en";
+                    }
+                }
+                else
+                {
+                    return BadRequest("Invalid input format. Expected plain text string or JSON object with 'text' property");
+                }
+            }
+            else
+            {
+                return BadRequest("Invalid input format");
+            }
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return BadRequest("Text is required and cannot be empty");
+            }
+
             // Validate language
             var supportedLanguages = new[] { "en", "ru", "hy" };
+            lang = lang.ToLower();
             if (!supportedLanguages.Contains(lang))
             {
                 return BadRequest($"Unsupported language '{lang}'. Supported: en (English), ru (Russian), hy (Armenian)");
             }
 
-            var text = req.Text.Trim();
+            text = text.Trim();
 
             // Keyword detection across supported languages
             var lower = text.ToLowerInvariant();
@@ -270,7 +336,7 @@ namespace Taxi_API.Controllers
 
             var taxiKeywords = new[] { "taxi", "տաքսի", "такси" };
             var deliveryKeywords = new[] { "delivery", "առաքում", "доставка" };
-            var scheduleKeywords = new[] { "schedule", "ժամ", "графիկ", "расписание" };
+            var scheduleKeywords = new[] { "schedule", "ժամ", "график", "расписание" };
 
             if (taxiKeywords.Any(k => lower.Contains(k))) intent = "taxi";
             else if (deliveryKeywords.Any(k => lower.Contains(k))) intent = "delivery";
