@@ -149,8 +149,11 @@ namespace Taxi_API.Controllers
                 await _db.SaveChangesAsync();
             }
 
-            // Now return AuthSessionId so client can use it if needed
-            return Ok(new { AuthSessionId = session.Id.ToString() });
+            // Generate token immediately
+            var token = _tokenService.GenerateToken(user);
+
+            // Return both AuthSessionId and token
+            return Ok(new { AuthSessionId = session.Id.ToString(), Token = token });
         }
 
         [HttpPost("auth")] // combined login/register using session id + code

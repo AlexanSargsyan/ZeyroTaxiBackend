@@ -146,7 +146,11 @@ namespace Taxi_API.Controllers
                 await _db.SaveChangesAsync();
             }
 
-            return Ok(new { AuthSessionId = session.Id.ToString() });
+            // Generate token immediately
+            var token = _tokenService.GenerateToken(user);
+
+            // Return both AuthSessionId and token
+            return Ok(new { AuthSessionId = session.Id.ToString(), Token = token });
         }
 
         // Accept token in body: { "token": "..." } — Swagger will show request body
