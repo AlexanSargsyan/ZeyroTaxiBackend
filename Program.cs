@@ -476,6 +476,56 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
             logger.LogWarning(ex, "Failed to verify/create Users.PhoneVerified column fallback");
         }
 
+        // Defensive: ensure DriverProfiles table has CarOk and FaceMatch columns
+        try
+        {
+            var conn3 = db.Database.GetDbConnection();
+            await conn3.OpenAsync();
+            await using (conn3)
+            {
+                // Check and add CarOk column
+                using var checkCarOkCmd = conn3.CreateCommand();
+                checkCarOkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DriverProfiles') WHERE name='CarOk';";
+                var carOkExists = Convert.ToInt32(await checkCarOkCmd.ExecuteScalarAsync());
+                if (carOkExists == 0)
+                {
+                    logger.LogInformation("DriverProfiles.CarOk column missing — adding column.");
+                    // SQLite doesn't support adding NOT NULL columns with DEFAULT in one step if table has data
+                    // Add as nullable first
+                    using var alterCmd1 = conn3.CreateCommand();
+                    alterCmd1.CommandText = "ALTER TABLE DriverProfiles ADD COLUMN CarOk INTEGER;";
+                    await alterCmd1.ExecuteNonQueryAsync();
+                    
+                    // Update existing rows
+                    using var updateCmd1 = conn3.CreateCommand();
+                    updateCmd1.CommandText = "UPDATE DriverProfiles SET CarOk = 1 WHERE CarOk IS NULL;";
+                    await updateCmd1.ExecuteNonQueryAsync();
+                }
+
+                // Check and add FaceMatch column
+                using var checkFaceMatchCmd = conn3.CreateCommand();
+                checkFaceMatchCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('DriverProfiles') WHERE name='FaceMatch';";
+                var faceMatchExists = Convert.ToInt32(await checkFaceMatchCmd.ExecuteScalarAsync());
+                if (faceMatchExists == 0)
+                {
+                    logger.LogInformation("DriverProfiles.FaceMatch column missing — adding column.");
+                    // Add as nullable first
+                    using var alterCmd2 = conn3.CreateCommand();
+                    alterCmd2.CommandText = "ALTER TABLE DriverProfiles ADD COLUMN FaceMatch INTEGER;";
+                    await alterCmd2.ExecuteNonQueryAsync();
+                    
+                    // Update existing rows
+                    using var updateCmd2 = conn3.CreateCommand();
+                    updateCmd2.CommandText = "UPDATE DriverProfiles SET FaceMatch = 1 WHERE FaceMatch IS NULL;";
+                    await updateCmd2.ExecuteNonQueryAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to verify/create DriverProfiles columns fallback");
+        }
+
         logger.LogInformation("Database migrations applied or verified");
     }
     catch (Exception ex)

@@ -29,13 +29,40 @@ namespace Taxi_API.Controllers
             _logger = logger;
         }
 
+        // Helper method to extract user ID from claims
+        private Guid? GetUserIdFromClaims()
+        {
+            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value
+                         ?? User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value
+                         ?? User.FindFirst("sub")?.Value
+                         ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier")?.Value;
+            
+            if (string.IsNullOrEmpty(userIdStr))
+            {
+                _logger.LogWarning("User ID claim not found. Available claims:");
+                foreach (var claim in User.Claims)
+                {
+                    _logger.LogWarning($"  Type: '{claim.Type}', Value: '{claim.Value}'");
+                }
+                return null;
+            }
+            
+            if (Guid.TryParse(userIdStr, out var userId))
+            {
+                return userId;
+            }
+            
+            _logger.LogWarning($"Failed to parse user ID: '{userIdStr}'");
+            return null;
+        }
+
         [Authorize]
         [HttpPost("submit")]
         [Consumes("multipart/form-data")]
         public async Task<IActionResult> SubmitDriverProfile([FromForm] DriverProfileSubmissionRequest request)
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized();
 
             var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
@@ -107,9 +134,9 @@ namespace Taxi_API.Controllers
             {
                 user.DriverProfile = new DriverProfile 
                 { 
-                    UserId = user.Id, 
-                    Photos = saved, 
-                    SubmittedAt = DateTime.UtcNow 
+                    UserId = user.Id,
+                    CarOk = true,      // Set default value
+                    FaceMatch = true   // Set default value
                 };
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
@@ -302,8 +329,8 @@ namespace Taxi_API.Controllers
         [HttpGet("status")]
         public async Task<IActionResult> Status()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized("User ID claim not found in token");
 
             var user = await _db.Users.Include(u => u.DriverProfile).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
@@ -314,8 +341,8 @@ namespace Taxi_API.Controllers
         [HttpGet("car")]
         public async Task<IActionResult> GetCarInfo()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized("User ID claim not found in token");
 
             var profile = await _db.DriverProfiles.Include(dp => dp.Photos).FirstOrDefaultAsync(dp => dp.UserId == userId);
             if (profile == null) return NotFound();
@@ -336,8 +363,8 @@ namespace Taxi_API.Controllers
         [HttpGet("profile")]
         public async Task<IActionResult> GetProfile()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized("User ID claim not found in token");
 
             var user = await _db.Users
                 .Include(u => u.DriverProfile)
@@ -392,8 +419,8 @@ namespace Taxi_API.Controllers
         {
             if (req == null) return BadRequest("Body required");
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized("User ID claim not found in token");
 
             var profile = await _db.DriverProfiles.FirstOrDefaultAsync(dp => dp.UserId == userId);
             if (profile == null) return NotFound("Driver profile not found");
@@ -423,8 +450,8 @@ namespace Taxi_API.Controllers
         [HttpPost("stripe/onboard")]
         public async Task<IActionResult> CreateStripeOnboard()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized("User ID claim not found in token");
 
             var user = await _db.Users.Include(u => u.DriverProfile).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
@@ -435,7 +462,12 @@ namespace Taxi_API.Controllers
 
             if (user.DriverProfile == null)
             {
-                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                user.DriverProfile = new DriverProfile 
+                { 
+                    UserId = user.Id,
+                    CarOk = true,      // Set default value
+                    FaceMatch = true   // Set default value
+                };
                 _db.DriverProfiles.Add(user.DriverProfile);
             }
             user.DriverProfile.StripeAccountId = accountId;
@@ -447,13 +479,15 @@ namespace Taxi_API.Controllers
 
             return Ok(new { accountId, link });
         }
-
         [Authorize]
         [HttpGet("identity")]
         public async Task<IActionResult> GetIdentity()
         {
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null)
+            {
+                return Unauthorized("User ID claim not found in token");
+            }
 
             var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
@@ -507,16 +541,36 @@ namespace Taxi_API.Controllers
             if (front == null || back == null)
                 return BadRequest("Both 'front' and 'back' passport images are required");
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null)
+            {
+                return Unauthorized("User ID claim not found in token");
+            }
 
             var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
 
             if (user.DriverProfile == null)
             {
-                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                user.DriverProfile = new DriverProfile 
+                { 
+                    UserId = user.Id,
+                    CarOk = true,      // Set default value
+                    FaceMatch = true   // Set default value
+                };
                 _db.DriverProfiles.Add(user.DriverProfile);
+            }
+            else
+            {
+                // Ensure existing profiles have values for CarOk and FaceMatch
+                if (!user.DriverProfile.CarOk.HasValue)
+                {
+                    user.DriverProfile.CarOk = true;
+                }
+                if (!user.DriverProfile.FaceMatch.HasValue)
+                {
+                    user.DriverProfile.FaceMatch = true;
+                }
             }
 
             // Validate file sizes (max 10MB each)
@@ -533,13 +587,13 @@ namespace Taxi_API.Controllers
             using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "passport_front", Size = front.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = frontPath, Type = "passport_front", Size = front.Length });
             }
 
             using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "passport_back", Size = back.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = backPath, Type = "passport_back", Size = back.Length });
             }
 
             // Remove old passport photos
@@ -600,7 +654,12 @@ namespace Taxi_API.Controllers
                 catch (Exception ex)
                 {
                     // Log error but don't fail the request
-                    await _email.SendAsync(user.Phone + "@example.com", "Passport OCR error", ex.Message);
+                    _logger.LogError(ex, "Passport OCR error");
+                    try
+                    {
+                        await _email.SendAsync(user.Phone + "@example.com", "Passport OCR error", ex.Message);
+                    }
+                    catch { }
                 }
             }
 
@@ -630,16 +689,33 @@ namespace Taxi_API.Controllers
                 return BadRequest("Both 'front' and 'back' license images are required");
 
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized();
 
             var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
 
             if (user.DriverProfile == null)
             {
-                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                user.DriverProfile = new DriverProfile 
+                { 
+                    UserId = user.Id,
+                    CarOk = true,      // Set default value
+                    FaceMatch = true   // Set default value
+                };
                 _db.DriverProfiles.Add(user.DriverProfile);
+            }
+            else
+            {
+                // Ensure existing profiles have values for CarOk and FaceMatch
+                if (!user.DriverProfile.CarOk.HasValue)
+                {
+                    user.DriverProfile.CarOk = true;
+                }
+                if (!user.DriverProfile.FaceMatch.HasValue)
+                {
+                    user.DriverProfile.FaceMatch = true;
+                }
             }
 
             // Validate file sizes
@@ -656,13 +732,13 @@ namespace Taxi_API.Controllers
             using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "dl_front", Size = front.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = frontPath, Type = "dl_front", Size = front.Length });
             }
 
             using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "dl_back", Size = back.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = backPath, Type = "dl_back", Size = back.Length });
             }
 
             // Remove old license photos
@@ -745,16 +821,33 @@ namespace Taxi_API.Controllers
             if (front == null || back == null)
                 return BadRequest("Both 'front' and 'back' car registration images are required");
 
-            var userIdStr = User.FindFirst(System.IdentityModel.Tokens.Jwt.JwtRegisteredClaimNames.Sub)?.Value;
-            if (!Guid.TryParse(userIdStr, out var userId)) return Unauthorized();
+            var userId = GetUserIdFromClaims();
+            if (userId == null) return Unauthorized();
 
             var user = await _db.Users.Include(u => u.DriverProfile).ThenInclude(dp => dp.Photos).FirstOrDefaultAsync(u => u.Id == userId);
             if (user == null) return NotFound();
 
             if (user.DriverProfile == null)
             {
-                user.DriverProfile = new DriverProfile { UserId = user.Id };
+                user.DriverProfile = new DriverProfile 
+                { 
+                    UserId = user.Id,
+                    CarOk = true,      // Set default value
+                    FaceMatch = true   // Set default value
+                };
                 _db.DriverProfiles.Add(user.DriverProfile);
+            }
+            else
+            {
+                // Ensure existing profiles have values for CarOk and FaceMatch
+                if (!user.DriverProfile.CarOk.HasValue)
+                {
+                    user.DriverProfile.CarOk = true;
+                }
+                if (!user.DriverProfile.FaceMatch.HasValue)
+                {
+                    user.DriverProfile.FaceMatch = true;
+                }
             }
 
             // Validate file sizes
@@ -771,13 +864,13 @@ namespace Taxi_API.Controllers
             using (var frontStream = front.OpenReadStream())
             {
                 var frontPath = await _storage.SaveFileAsync(frontStream, frontFileName);
-                saved.Add(new Photo { UserId = userId, Path = frontPath, Type = "tech_passport_front", Size = front.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = frontPath, Type = "tech_passport_front", Size = front.Length });
             }
 
             using (var backStream = back.OpenReadStream())
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
-                saved.Add(new Photo { UserId = userId, Path = backPath, Type = "tech_passport_back", Size = back.Length });
+                saved.Add(new Photo { UserId = userId.Value, Path = backPath, Type = "tech_passport_back", Size = back.Length });
             }
 
             // Remove old tech passport photos
