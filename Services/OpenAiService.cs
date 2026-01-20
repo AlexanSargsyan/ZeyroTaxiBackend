@@ -45,28 +45,59 @@ namespace Taxi_API.Services
 
         public async Task<string?> TranscribeAsync(Stream audioStream, string language)
         {
-            var url = "https://api.openai.com/v1/audio/transcriptions";
-            using var content = new MultipartFormDataContent();
-            var streamContent = new StreamContent(audioStream);
-            streamContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-            content.Add(streamContent, "file", "audio.wav");
-            content.Add(new StringContent("whisper-1"), "model");
-            if (!string.IsNullOrEmpty(language))
+            if (string.IsNullOrWhiteSpace(_apiKey))
             {
-                // OpenAI expects ISO language codes like "en", "ru", "hy" for Armenian
-                content.Add(new StringContent(language), "language");
+                _logger.LogError("OpenAI API key is not configured. Cannot transcribe audio.");
+                return null;
             }
 
-            var res = await _http.PostAsync(url, content);
-            if (!res.IsSuccessStatusCode) return null;
-
-            var json = await res.Content.ReadAsStringAsync();
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("text", out var text))
+            try
             {
-                return text.GetString();
+                var url = "https://api.openai.com/v1/audio/transcriptions";
+                using var content = new MultipartFormDataContent();
+                var streamContent = new StreamContent(audioStream);
+                streamContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+                content.Add(streamContent, "file", "audio.wav");
+                content.Add(new StringContent("whisper-1"), "model");
+                if (!string.IsNullOrEmpty(language))
+                {
+                    // OpenAI expects ISO language codes like "en", "ru", "hy" for Armenian
+                    content.Add(new StringContent(language), "language");
+                }
+
+                _logger.LogInformation("Sending transcription request to OpenAI for language: {language}", language);
+                var res = await _http.PostAsync(url, content);
+                
+                if (!res.IsSuccessStatusCode)
+                {
+                    var errorBody = await res.Content.ReadAsStringAsync();
+                    _logger.LogError("OpenAI transcription failed with status {StatusCode}: {ErrorBody}", 
+                        res.StatusCode, errorBody);
+                    return null;
+                }
+
+                var json = await res.Content.ReadAsStringAsync();
+                _logger.LogInformation("OpenAI transcription successful, response length: {length}", json.Length);
+                
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.TryGetProperty("text", out var text))
+                {
+                    return text.GetString();
+                }
+                
+                _logger.LogWarning("OpenAI response did not contain 'text' property");
+                return null;
             }
-            return null;
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "HTTP request error during OpenAI transcription");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error during OpenAI transcription");
+                return null;
+            }
         }
 
         public async Task<string?> ChatAsync(string prompt, string language)
