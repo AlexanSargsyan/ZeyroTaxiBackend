@@ -192,7 +192,9 @@ Several endpoints support multipart/form-data for file uploads:
             "Driver" => new[] { "Driver Profile & Management" },
             "Orders" when api.RelativePath?.Contains("/driver/accept") == true ||
                          api.RelativePath?.Contains("/location/") == true ||
-                         api.RelativePath?.Contains("/map/") == true => new[] { "Orders & Trips (Driver)" },
+                         api.RelativePath?.Contains("/map/") == true ||
+                         api.RelativePath?.Contains("/accept/") == true ||
+                         api.RelativePath?.Contains("/complete/") == true => new[] { "Orders & Trips (Driver)" },
             "Orders" => new[] { "Orders & Trips (Client)" },
             "Payments" => new[] { "Payments" },
             "Idram" => new[] { "Payments (Idram)" },
