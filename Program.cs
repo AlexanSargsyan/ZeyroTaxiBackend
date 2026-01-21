@@ -96,7 +96,7 @@ Complete REST API for the Zeyro Taxi platform supporting:
 - **User & Driver Authentication** (SMS-based verification)
 - **Order Management** (Taxi, Delivery, Scheduled rides)
 - **Driver Profile Management** (Document upload with OCR)
-- **Payment Integration** (Stripe, Idram, IPay)
+- **Payment Integration** (Card management, Idram, IPay)
 - **Voice AI** (Speech-to-text, Text-to-speech, Chat)
 - **Real-time Communication** (WebSocket support)
 - **Location Tracking** (GPS coordinates)
@@ -131,7 +131,9 @@ Several endpoints support multipart/form-data for file uploads:
 - **Driver Profile & Management**: Profile management and location updates
 - **Orders & Trips (Client)**: Client-side order management, estimates, and trip history
 - **Orders & Trips (Driver)**: Driver-side order acceptance, location updates, and trip lifecycle
-- **Payments**: Payment processing (Stripe, Idram, IPay)
+- **Payments**: Payment card management and processing
+- **Payments (Idram)**: Idram payment processing
+- **Payments (IPay)**: IPay payment processing
 - **Voice AI & Chat**: AI-powered voice and chat features
 - **Scheduled Rides**: Scheduled ride management
 "
@@ -192,7 +194,7 @@ Several endpoints support multipart/form-data for file uploads:
                          api.RelativePath?.Contains("/location/") == true ||
                          api.RelativePath?.Contains("/map/") == true => new[] { "Orders & Trips (Driver)" },
             "Orders" => new[] { "Orders & Trips (Client)" },
-            "Payments" => new[] { "Payments (Stripe)" },
+            "Payments" => new[] { "Payments" },
             "Idram" => new[] { "Payments (Idram)" },
             "IPay" => new[] { "Payments (IPay)" },
             "Voice" => new[] { "Voice AI & Chat" },
@@ -385,7 +387,8 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
                             ("20260101000000_InitialCreate", "8.0.0"),
                             ("20260108095046_AddScheduledPlanTables", "8.0.0"),
                             ("20260114094508_AddIdramPayments", "8.0.0"),
-                            ("20260114094924_AddIPayPayments", "8.0.0")
+                            ("20260114094924_AddIPayPayments", "8.0.0"),
+                            ("20260120000000_AddCardholderNameToPaymentCards", "8.0.0")
                         };
                         
                         foreach (var (migrationId, productVersion) in allMigrations)
@@ -530,6 +533,31 @@ static async Task EnsureDatabaseMigratedAsync(IServiceProvider services, ILogger
         catch (Exception ex)
         {
             logger.LogWarning(ex, "Failed to verify/create DriverProfiles columns fallback");
+        }
+
+        // Defensive: ensure PaymentCards table has CardholderName column
+        try
+        {
+            var conn4 = db.Database.GetDbConnection();
+            await conn4.OpenAsync();
+            await using (conn4)
+            {
+                // Check and add CardholderName column
+                using var checkCardholderCmd = conn4.CreateCommand();
+                checkCardholderCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('PaymentCards') WHERE name='CardholderName';";
+                var cardholderExists = Convert.ToInt32(await checkCardholderCmd.ExecuteScalarAsync());
+                if (cardholderExists == 0)
+                {
+                    logger.LogInformation("PaymentCards.CardholderName column missing — adding column.");
+                    using var alterCmd = conn4.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE PaymentCards ADD COLUMN CardholderName TEXT;";
+                    await alterCmd.ExecuteNonQueryAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to verify/create PaymentCards.CardholderName column fallback");
         }
 
         logger.LogInformation("Database migrations applied or verified");

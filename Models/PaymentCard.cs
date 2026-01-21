@@ -15,6 +15,8 @@ namespace Taxi_API.Models
 
         public string? Brand { get; set; }
 
+        public string? CardholderName { get; set; }
+
         public int ExpMonth { get; set; }
         public int ExpYear { get; set; }
 
