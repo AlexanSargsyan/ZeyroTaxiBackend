@@ -351,7 +351,9 @@ namespace Taxi_API.Controllers
         {
             try
             {
-                var storagePath = Path.Combine(Directory.GetCurrentDirectory(), "Storage");
+                var baseDirectory = AppContext.BaseDirectory;
+                var currentDirectory = Directory.GetCurrentDirectory();
+                var storagePath = Path.Combine(baseDirectory, "Storage");
                 var exists = Directory.Exists(storagePath);
                 var writable = false;
                 
@@ -369,12 +371,14 @@ namespace Taxi_API.Controllers
 
                 return Ok(new
                 {
-                    currentDirectory = Directory.GetCurrentDirectory(),
+                    baseDirectory = baseDirectory,
+                    currentDirectory = currentDirectory,
                     storagePath = storagePath,
                     exists = exists,
                     writable = writable,
                     environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
-                    timestamp = DateTime.UtcNow
+                    timestamp = DateTime.UtcNow,
+                    note = "Using AppContext.BaseDirectory for Docker compatibility"
                 });
             }
             catch (Exception ex)
@@ -810,7 +814,7 @@ namespace Taxi_API.Controllers
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
                 saved.Add(new Photo { UserId = userId.Value, Path = backPath, Type = "dl_back", Size = back.Length });
-            };
+            }
 
             // Remove old license photos
             var oldPhotos = user.DriverProfile.Photos.Where(p => p.Type == "dl_front" || p.Type == "dl_back").ToList();

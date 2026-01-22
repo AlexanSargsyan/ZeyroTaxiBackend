@@ -10,7 +10,15 @@ namespace Taxi_API.Services
 
         public LocalStorageService(IConfiguration config, ILogger<LocalStorageService> logger)
         {
-            _root = config["Storage:Path"] ?? "Storage";
+            // Use AppContext.BaseDirectory for Docker compatibility
+            var baseDir = AppContext.BaseDirectory;
+            var configPath = config["Storage:Path"] ?? "Storage";
+            
+            // If config path is relative, combine with base directory
+            _root = Path.IsPathRooted(configPath) 
+                ? configPath 
+                : Path.Combine(baseDir, configPath);
+            
             _logger = logger;
             
             try
