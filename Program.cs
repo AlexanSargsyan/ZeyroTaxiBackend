@@ -190,10 +190,10 @@ Several endpoints support multipart/form-data for file uploads:
                           api.RelativePath?.Contains("/login") == true ||
                           api.RelativePath?.Contains("/logout") == true) => new[] { "Driver Authentication" },
             "Driver" => new[] { "Driver Profile & Management" },
-            "Orders" when api.RelativePath?.Contains("/driver/accept") == true ||
+            "Orders" when api.RelativePath?.Contains("/accept-order") == true ||
+                         api.RelativePath?.Contains("/driver/") == true ||
                          api.RelativePath?.Contains("/location/") == true ||
                          api.RelativePath?.Contains("/map/") == true ||
-                         api.RelativePath?.Contains("/accept/") == true ||
                          api.RelativePath?.Contains("/complete/") == true => new[] { "Orders & Trips (Driver)" },
             "Orders" => new[] { "Orders & Trips (Client)" },
             "Payments" => new[] { "Payments" },
