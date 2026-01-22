@@ -565,6 +565,162 @@ namespace Taxi_API.Controllers
         }
 
         /// <summary>
+        /// Get all available tariffs with price estimates
+        /// </summary>
+        /// <remarks>
+        /// Returns 5 tariff options (vehicle type + tariff combinations) with price estimates based on pickup and destination locations.
+        /// 
+        /// **Tariff Options:**
+        /// 1. **Moto Standard** - Budget motorcycle option
+        /// 2. **Car Standard** - Standard car service
+        /// 3. **Car Premium** - Premium car service with higher quality
+        /// 4. **Van Standard** - Spacious van for groups/cargo
+        /// 5. **Van Premium** - Premium van service
+        /// 
+        /// **Query Parameters:**
+        /// - **pickupLat** (double, required): Pickup latitude
+        /// - **pickupLng** (double, required): Pickup longitude
+        /// - **destLat** (double, required): Destination latitude
+        /// - **destLng** (double, required): Destination longitude
+        /// - **pet** (bool, optional): Include pet surcharge (default: false)
+        /// - **child** (bool, optional): Include child seat surcharge (default: false)
+        /// 
+        /// **Example Request:**
+        /// ```
+        /// GET /api/orders/tariffs?pickupLat=40.1872&pickupLng=44.5152&destLat=40.1776&destLng=44.5126&pet=false&child=false
+        /// ```
+        /// 
+        /// **Example Response:**
+        /// ```json
+        /// {
+        ///   "tariffs": [
+        ///     {
+        ///       "id": 1,
+        ///       "name": "Moto Standard",
+        ///       "vehicleType": "moto",
+        ///       "tariff": "standard",
+        ///       "description": "Quick and affordable motorcycle ride",
+        ///       "icon": "???",
+        ///       "price": 450,
+        ///       "distanceKm": 2.5,
+        ///       "etaMinutes": 15,
+        ///       "currency": "AMD"
+        ///     },
+        ///     ...
+        ///   ]
+        /// }
+        /// ```
+        /// </remarks>
+        /// <response code="200">Returns list of 5 tariff options with prices</response>
+        /// <response code="400">Invalid coordinates provided</response>
+        /// <response code="401">Unauthorized - missing or invalid token</response>
+        [Authorize]
+        [HttpGet("tariffs")]
+        [ProducesResponseType(200)]
+        [ProducesResponseType(400)]
+        public IActionResult GetTariffs(
+            [FromQuery] double pickupLat, 
+            [FromQuery] double pickupLng, 
+            [FromQuery] double destLat, 
+            [FromQuery] double destLng, 
+            [FromQuery] bool pet = false, 
+            [FromQuery] bool child = false)
+        {
+            if (pickupLat == 0 || pickupLng == 0 || destLat == 0 || destLng == 0)
+                return BadRequest("Valid coordinates required (pickupLat, pickupLng, destLat, destLng)");
+
+            var distance = HaversineDistanceKm(pickupLat, pickupLng, destLat, destLng);
+            var eta = (int)Math.Ceiling(distance / 0.5);
+
+            var tariffs = new[]
+            {
+                new
+                {
+                    id = 1,
+                    name = "Moto Standard",
+                    vehicleType = "moto",
+                    tariff = "standard",
+                    description = "Quick and affordable motorcycle ride",
+                    icon = "???",
+                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "moto", pet, child),
+                    distanceKm = Math.Round(distance, 2),
+                    etaMinutes = eta,
+                    currency = "AMD",
+                    features = new[] { "Fast", "Affordable", "Solo rider" }
+                },
+                new
+                {
+                    id = 2,
+                    name = "Car Standard",
+                    vehicleType = "car",
+                    tariff = "standard",
+                    description = "Comfortable standard car ride",
+                    icon = "??",
+                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "car", pet, child),
+                    distanceKm = Math.Round(distance, 2),
+                    etaMinutes = eta,
+                    currency = "AMD",
+                    features = new[] { "Comfortable", "Up to 4 passengers", "Air conditioning" }
+                },
+                new
+                {
+                    id = 3,
+                    name = "Car Premium",
+                    vehicleType = "car",
+                    tariff = "premium",
+                    description = "High-end premium car service",
+                    icon = "??",
+                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "premium", "car", pet, child),
+                    distanceKm = Math.Round(distance, 2),
+                    etaMinutes = eta,
+                    currency = "AMD",
+                    features = new[] { "Luxury", "Top-rated drivers", "Premium vehicles" }
+                },
+                new
+                {
+                    id = 4,
+                    name = "Van Standard",
+                    vehicleType = "van",
+                    tariff = "standard",
+                    description = "Spacious van for groups or cargo",
+                    icon = "??",
+                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "van", pet, child),
+                    distanceKm = Math.Round(distance, 2),
+                    etaMinutes = eta,
+                    currency = "AMD",
+                    features = new[] { "Spacious", "Up to 7 passengers", "Cargo space" }
+                },
+                new
+                {
+                    id = 5,
+                    name = "Van Premium",
+                    vehicleType = "van",
+                    tariff = "premium",
+                    description = "Luxury van for premium group travel",
+                    icon = "??",
+                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "premium", "van", pet, child),
+                    distanceKm = Math.Round(distance, 2),
+                    etaMinutes = eta,
+                    currency = "AMD",
+                    features = new[] { "Luxury", "7+ passengers", "Premium amenities" }
+                }
+            };
+
+            return Ok(new
+            {
+                tariffs = tariffs,
+                totalOptions = tariffs.Length,
+                pickupLocation = new { lat = pickupLat, lng = pickupLng },
+                destinationLocation = new { lat = destLat, lng = destLng },
+                surcharges = new
+                {
+                    pet = pet ? 100 : 0,
+                    child = child ? 50 : 0
+                }
+            });
+        }
+
+        /// <summary>
         /// Cancel an order with optional reason
         /// </summary>
         [Authorize]

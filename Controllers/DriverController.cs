@@ -344,6 +344,50 @@ namespace Taxi_API.Controllers
         }
 
         /// <summary>
+        /// Check storage directory status (diagnostics)
+        /// </summary>
+        [HttpGet("storage-check")]
+        public IActionResult StorageCheck()
+        {
+            try
+            {
+                var storagePath = Path.Combine(Directory.GetCurrentDirectory(), "Storage");
+                var exists = Directory.Exists(storagePath);
+                var writable = false;
+                
+                if (exists)
+                {
+                    try
+                    {
+                        var testFile = Path.Combine(storagePath, $"test_{Guid.NewGuid()}.txt");
+                        System.IO.File.WriteAllText(testFile, "test");
+                        System.IO.File.Delete(testFile);
+                        writable = true;
+                    }
+                    catch { }
+                }
+
+                return Ok(new
+                {
+                    currentDirectory = Directory.GetCurrentDirectory(),
+                    storagePath = storagePath,
+                    exists = exists,
+                    writable = writable,
+                    environmentName = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT"),
+                    timestamp = DateTime.UtcNow
+                });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new
+                {
+                    error = ex.Message,
+                    stackTrace = ex.StackTrace
+                });
+            }
+        }
+
+        /// <summary>
         /// Get driver car information
         /// </summary>
         [Authorize]
