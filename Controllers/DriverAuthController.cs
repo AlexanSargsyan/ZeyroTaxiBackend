@@ -33,6 +33,9 @@ namespace Taxi_API.Controllers
             _config = config;
         }
 
+        /// <summary>
+        /// Request SMS verification code for driver authentication
+        /// </summary>
         [HttpPost("request-code")]
         public async Task<IActionResult> RequestCode([FromBody] RequestCodeRequest req)
         {
@@ -73,6 +76,9 @@ namespace Taxi_API.Controllers
             return Ok(new { sent = true, code = code });
         }
 
+        /// <summary>
+        /// Resend SMS verification code for driver
+        /// </summary>
         [HttpPost("resend")]
         public async Task<IActionResult> Resend([FromBody] ResendRequest req)
         {
@@ -110,6 +116,9 @@ namespace Taxi_API.Controllers
         }
 
 
+        /// <summary>
+        /// Verify SMS code and mark user as driver
+        /// </summary>
         [HttpPost("verify")]
         public async Task<IActionResult> Verify([FromBody] VerifyRequest req)
         {
@@ -153,7 +162,9 @@ namespace Taxi_API.Controllers
             return Ok(new { AuthSessionId = session.Id.ToString(), Token = token });
         }
 
-        // Accept token in body: { "token": "..." } — Swagger will show request body
+        /// <summary>
+        /// Refresh JWT token for driver
+        /// </summary>
         [HttpPost("login")]
         [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] AuthTokenRequest? body)
@@ -230,6 +241,9 @@ namespace Taxi_API.Controllers
             }
         }
 
+        /// <summary>
+        /// Logout driver and expire all sessions
+        /// </summary>
         [HttpPost("logout")]
         public async Task<IActionResult> Logout([FromBody] AuthTokenRequest? body)
         {
@@ -301,6 +315,9 @@ namespace Taxi_API.Controllers
             }
         }
 
+        /// <summary>
+        /// Get JWT token using verified driver session
+        /// </summary>
         [HttpPost("auth")]
         public async Task<IActionResult> Auth([FromBody] AuthRequest req)
         {

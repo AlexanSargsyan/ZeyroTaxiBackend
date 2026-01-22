@@ -56,6 +56,9 @@ namespace Taxi_API.Controllers
             return null;
         }
 
+        /// <summary>
+        /// Submit complete driver profile with all documents
+        /// </summary>
         [Authorize]
         [HttpPost("submit")]
         [Consumes("multipart/form-data")]
@@ -325,6 +328,9 @@ namespace Taxi_API.Controllers
             }
         }
 
+        /// <summary>
+        /// Get driver approval status
+        /// </summary>
         [Authorize]
         [HttpGet("status")]
         public async Task<IActionResult> Status()
@@ -337,6 +343,9 @@ namespace Taxi_API.Controllers
             return Ok(new DriverStatusResponse(user.DriverProfile?.Approved ?? false));
         }
 
+        /// <summary>
+        /// Get driver car information
+        /// </summary>
         [Authorize]
         [HttpGet("car")]
         public async Task<IActionResult> GetCarInfo()
@@ -359,6 +368,9 @@ namespace Taxi_API.Controllers
             });
         }
 
+        /// <summary>
+        /// Get complete driver profile with orders
+        /// </summary>
         [Authorize]
         [HttpGet("profile")]
         public async Task<IActionResult> GetProfile()
@@ -413,6 +425,9 @@ namespace Taxi_API.Controllers
             return Ok(profileDto);
         }
 
+        /// <summary>
+        /// Update driver current location
+        /// </summary>
         [Authorize]
         [HttpPatch("location")]
         public async Task<IActionResult> UpdateLocation([FromBody] DriverLocationUpdateRequest req)
@@ -446,6 +461,9 @@ namespace Taxi_API.Controllers
             return Ok(new { ok = true });
         }
 
+        /// <summary>
+        /// Create Stripe connected account for driver payouts
+        /// </summary>
         [Authorize]
         [HttpPost("stripe/onboard")]
         public async Task<IActionResult> CreateStripeOnboard()
@@ -479,6 +497,9 @@ namespace Taxi_API.Controllers
 
             return Ok(new { accountId, link });
         }
+        /// <summary>
+        /// Get all driver identity documents and information
+        /// </summary>
         [Authorize]
         [HttpGet("identity")]
         public async Task<IActionResult> GetIdentity()
@@ -529,6 +550,9 @@ namespace Taxi_API.Controllers
             public IFormFile Back { get; set; } = null!;
         }
 
+        /// <summary>
+        /// Upload passport images with OCR extraction
+        /// </summary>
         [Authorize]
         [HttpPost("identity/passport")]
         [Consumes("multipart/form-data")]
@@ -676,6 +700,9 @@ namespace Taxi_API.Controllers
             });
         }
 
+        /// <summary>
+        /// Upload driver license images with OCR extraction
+        /// </summary>
         [Authorize]
         [HttpPost("identity/license")]
         [Consumes("multipart/form-data")]
@@ -739,7 +766,7 @@ namespace Taxi_API.Controllers
             {
                 var backPath = await _storage.SaveFileAsync(backStream, backFileName);
                 saved.Add(new Photo { UserId = userId.Value, Path = backPath, Type = "dl_back", Size = back.Length });
-            }
+            };
 
             // Remove old license photos
             var oldPhotos = user.DriverProfile.Photos.Where(p => p.Type == "dl_front" || p.Type == "dl_back").ToList();
@@ -809,6 +836,9 @@ namespace Taxi_API.Controllers
             });
         }
 
+        /// <summary>
+        /// Upload car registration documents with OCR extraction
+        /// </summary>
         [Authorize]
         [HttpPost("identity/car-registration")]
         [Consumes("multipart/form-data")]

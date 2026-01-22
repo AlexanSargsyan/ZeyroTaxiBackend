@@ -105,7 +105,7 @@ namespace Taxi_API.Controllers
         }
 
         /// <summary>
-        /// Create a new taxi order (CLIENT endpoint)
+        /// Create a new taxi order with automatic driver assignment
         /// </summary>
         /// <remarks>
         /// **Main endpoint for clients to request a ride.**
@@ -116,7 +116,7 @@ namespace Taxi_API.Controllers
         /// **Request Body Parameters:**
         /// - **fromLat** (double, required): Pickup latitude coordinate
         /// - **fromLng** (double, required): Pickup longitude coordinate
-        /// - **to** (array, required): Array of destination stops with address, lat, lng
+        /// - **to** (array, required: Array of destination stops with address, lat, lng
         /// - **paymentMethod** (string, required): Payment method - "cash" or "card"
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
@@ -293,7 +293,7 @@ namespace Taxi_API.Controllers
         }
 
         /// <summary>
-        /// Accept an order (DRIVER endpoint)
+        /// Accept and create order as driver (DRIVER endpoint)
         /// </summary>
         /// <remarks>
         /// **Endpoint for drivers to manually create/accept an order.**
@@ -309,7 +309,7 @@ namespace Taxi_API.Controllers
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
         /// - **tariff** (string, required): Tariff type - "standard" or "premium"
-        /// - **vehicleType** (string, optional): Vehicle type - "car", "moto", or "van" (default: "car")
+        /// - **vehicleType** (string, optional: Vehicle type - "car", "moto", or "van" (default: "car")
         /// 
         /// **Request Example:**
         /// ```json
@@ -468,6 +468,9 @@ namespace Taxi_API.Controllers
             });
         }
 
+        /// <summary>
+        /// Request a new order (legacy endpoint)
+        /// </summary>
         [Authorize]
         [HttpPost("request")]
         public async Task<IActionResult> RequestOrder([FromBody] Order order)
@@ -531,6 +534,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Get ride estimate with order details
+        /// </summary>
         [Authorize]
         [HttpPost("estimate/body")]
         public IActionResult Estimate([FromBody] Order order)
@@ -545,6 +551,9 @@ namespace Taxi_API.Controllers
             return Ok(new { distanceKm = Math.Round(distance, 2), price, etaMinutes = eta });
         }
 
+        /// <summary>
+        /// Get ride estimate by coordinates
+        /// </summary>
         [Authorize]
         [HttpGet("estimate")]
         public IActionResult EstimateGet([FromQuery] double pickupLat, [FromQuery] double pickupLng, [FromQuery] double destLat, [FromQuery] double destLng, [FromQuery] string? vehicleType, [FromQuery] string? tariff, [FromQuery] bool pet = false, [FromQuery] bool child = false)
@@ -555,6 +564,9 @@ namespace Taxi_API.Controllers
             return Ok(new { distanceKm = Math.Round(distance, 2), price, etaMinutes = eta, vehicleType = vehicleType ?? "car" });
         }
 
+        /// <summary>
+        /// Cancel an order with optional reason
+        /// </summary>
         [Authorize]
         [HttpPost("cancel/{id}")]
         public async Task<IActionResult> Cancel(Guid id, [FromBody] string? reason)
@@ -572,6 +584,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Update driver location during trip
+        /// </summary>
         [Authorize]
         [HttpPost("location/{orderId}")]
         public async Task<IActionResult> UpdateLocation(Guid orderId, [FromBody] LocationUpdate req)
@@ -587,6 +602,9 @@ namespace Taxi_API.Controllers
             return Ok(new { ok = true });
         }
 
+        /// <summary>
+        /// Start trip as driver
+        /// </summary>
         [Authorize]
         [HttpPost("driver/start-trip/{id}")]
         public async Task<IActionResult> DriverStartTrip(Guid id)
@@ -603,6 +621,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Mark order as completed
+        /// </summary>
         [Authorize]
         [HttpPost("complete/{id}")]
         public async Task<IActionResult> Complete(Guid id)
@@ -615,6 +636,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Rate a completed order
+        /// </summary>
         [Authorize]
         [HttpPost("rate/{id}")]
         public async Task<IActionResult> Rate(Guid id, [FromBody] RatingRequest req)
@@ -633,6 +657,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Get user or driver trip history
+        /// </summary>
         [Authorize]
         [HttpGet("trips")]
         public async Task<IActionResult> GetTrips([FromQuery] string? status = null, [FromQuery] bool asDriver = false)
@@ -659,6 +686,9 @@ namespace Taxi_API.Controllers
             return Ok(items);
         }
 
+        /// <summary>
+        /// Get reviews with optional filters
+        /// </summary>
         [Authorize]
         [HttpGet("reviews")]
         public async Task<IActionResult> GetReviews([FromQuery] Guid? driverId = null, [FromQuery] int? minRating = null)
@@ -677,6 +707,9 @@ namespace Taxi_API.Controllers
             return Ok(items);
         }
 
+        /// <summary>
+        /// Driver receives and accepts order
+        /// </summary>
         [Authorize]
         [HttpPost("map/receive/{id}")]
         public async Task<IActionResult> MapReceive(Guid id)
@@ -701,6 +734,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Driver arrives at pickup location
+        /// </summary>
         [Authorize]
         [HttpPost("map/arrive/{id}")]
         public async Task<IActionResult> MapArrive(Guid id)
@@ -716,6 +752,9 @@ namespace Taxi_API.Controllers
             return Ok(new { ok = true });
         }
 
+        /// <summary>
+        /// Driver starts the trip
+        /// </summary>
         [Authorize]
         [HttpPost("map/start/{id}")]
         public async Task<IActionResult> MapStart(Guid id)
@@ -734,6 +773,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Driver completes the trip
+        /// </summary>
         [Authorize]
         [HttpPost("map/complete/{id}")]
         public async Task<IActionResult> MapComplete(Guid id)
@@ -753,6 +795,9 @@ namespace Taxi_API.Controllers
             return Ok(order);
         }
 
+        /// <summary>
+        /// Cancel trip by driver or user
+        /// </summary>
         [Authorize]
         [HttpPost("map/cancel/{id}")]
         public async Task<IActionResult> MapCancel(Guid id, [FromBody] string? reason)

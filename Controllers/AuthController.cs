@@ -34,6 +34,9 @@ namespace Taxi_API.Controllers
             _logger = logger;
         }
 
+        /// <summary>
+        /// Request SMS verification code for user authentication
+        /// </summary>
         [HttpPost("request-code")]
         public async Task<IActionResult> RequestCode([FromBody] RequestCodeRequest req)
         {
@@ -87,6 +90,9 @@ namespace Taxi_API.Controllers
             return Ok(new { Sent = true, Code = code });
         }
 
+        /// <summary>
+        /// Resend SMS verification code
+        /// </summary>
         [HttpPost("resend")]
         public async Task<IActionResult> Resend([FromBody] ResendRequest req)
         {
@@ -125,6 +131,9 @@ namespace Taxi_API.Controllers
             return Ok(new { Sent = true, Code = session.Code });
         }
 
+        /// <summary>
+        /// Verify SMS code and create user if needed
+        /// </summary>
         [HttpPost("verify")]
         public async Task<IActionResult> Verify([FromBody] VerifyRequest req)
         {
@@ -156,6 +165,9 @@ namespace Taxi_API.Controllers
             return Ok(new { AuthSessionId = session.Id.ToString(), Token = token });
         }
 
+        /// <summary>
+        /// Get JWT token using verified session
+        /// </summary>
         [HttpPost("auth")] // combined login/register using session id + code
         public async Task<IActionResult> Auth([FromBody] AuthRequest req)
         {
@@ -187,6 +199,9 @@ namespace Taxi_API.Controllers
             return Ok(new { token });
         }
 
+        /// <summary>
+        /// Logout user and expire all sessions
+        /// </summary>
         [HttpPost("logout")]
         public async Task<IActionResult> Logout([FromBody] AuthTokenRequest? body)
         {

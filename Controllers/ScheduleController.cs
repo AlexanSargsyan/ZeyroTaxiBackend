@@ -40,6 +40,9 @@ namespace Taxi_API.Controllers
             return null;
         }
 
+        /// <summary>
+        /// Create a new scheduled ride plan
+        /// </summary>
         [Authorize]
         [HttpPost]
         public async Task<IActionResult> CreateSchedule([FromBody] CreateScheduleRequest req)
@@ -63,6 +66,9 @@ namespace Taxi_API.Controllers
             return Ok(new ScheduledPlanResponse(plan.Id, plan.Name, entries));
         }
 
+        /// <summary>
+        /// Get all user scheduled ride plans
+        /// </summary>
         [Authorize]
         [HttpGet]
         public async Task<IActionResult> GetSchedules()
