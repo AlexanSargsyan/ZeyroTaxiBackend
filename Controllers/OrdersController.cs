@@ -29,8 +29,7 @@ namespace Taxi_API.Controllers
         string PaymentMethod,
         bool Pet,
         bool Child,
-        string Tariff,
-        string? VehicleType = "car"
+        string Tariff
     );
 
     [ApiController]
@@ -72,36 +71,117 @@ namespace Taxi_API.Controllers
 
         private decimal CalculatePrice(double distanceKm, int etaMinutes, double pickupLat, double pickupLng, double destLat, double destLng, string? tariff, string? vehicleType, bool pet, bool child)
         {
-            var v = (vehicleType ?? "car").ToLower();
             decimal baseFare, perKm, perMinute;
 
-            switch (v)
+            // If vehicleType is provided, it's a delivery order (moto, car, van)
+            if (!string.IsNullOrEmpty(vehicleType))
             {
-                case "moto": baseFare = 200m; perKm = 30m; perMinute = 8m; break;
-                case "van": baseFare = 600m; perKm = 80m; perMinute = 25m; break;
-                default: baseFare = 400m; perKm = 60m; perMinute = 20m; break;
-            }
+                var v = vehicleType.ToLower();
+                switch (v)
+                {
+                    case "moto": 
+                        baseFare = 200m; perKm = 30m; perMinute = 8m; 
+                        break;
+                    case "van": 
+                        baseFare = 600m; perKm = 80m; perMinute = 25m; 
+                        break;
+                    case "car":
+                    default: 
+                        baseFare = 400m; perKm = 60m; perMinute = 20m; 
+                        break;
+                }
 
-            if (!string.IsNullOrEmpty(tariff) && tariff.ToLower() == "premium")
+                var price = baseFare + (decimal)distanceKm * perKm + (decimal)etaMinutes * perMinute;
+                if (pet) price += 100m;
+                if (child) price += 50m;
+
+                // City center surcharge
+                var cityCenterMinLat = 40.15; var cityCenterMaxLat = 40.25;
+                var cityCenterMinLng = 44.45; var cityCenterMaxLng = 44.60;
+                bool inCityZone = (pickupLat >= cityCenterMinLat && pickupLat <= cityCenterMaxLat && pickupLng >= cityCenterMinLng && pickupLng <= cityCenterMaxLng)
+                                  || (destLat >= cityCenterMinLat && destLat <= cityCenterMaxLat && destLng >= cityCenterMinLng && destLng <= cityCenterMaxLng);
+                if (inCityZone) price *= 1.10m;
+
+                // Minimum prices for delivery
+                decimal minPrice = v == "moto" ? 300m : (v == "van" ? 1000m : 800m);
+                if (price < minPrice) price = minPrice;
+                
+                return Math.Round(price, 0);
+            }
+            else
             {
-                baseFare *= 2m;
-                perKm *= 1.5m;
-                perMinute *= 1.5m;
+                // Taxi order - use tariff-based pricing
+                baseFare = 400m;
+                perKm = 60m;
+                perMinute = 20m;
+
+                // Apply tariff surcharges for taxi orders
+                if (!string.IsNullOrEmpty(tariff))
+                {
+                    switch (tariff.ToLower())
+                    {
+                        case "electro":
+                        case "standard":
+                            baseFare += 100m; // Standard (Electro) +100 AMD
+                            break;
+                        case "economy":
+                        case "start":
+                            baseFare += 200m; // Start (Economy) +200 AMD
+                            break;
+                        case "comfort":
+                            baseFare += 300m; // Comfort +300 AMD
+                            break;
+                        case "business":
+                            baseFare += 400m; // Business +400 AMD
+                            break;
+                        case "premium":
+                            baseFare += 500m; // Premium +500 AMD
+                            break;
+                    }
+                }
+
+                var price = baseFare + (decimal)distanceKm * perKm + (decimal)etaMinutes * perMinute;
+                
+                // Add surcharges for pet and child
+                if (pet) price += 100m;
+                if (child) price += 50m;
+
+                // City center surcharge (10%)
+                var cityCenterMinLat = 40.15; var cityCenterMaxLat = 40.25;
+                var cityCenterMinLng = 44.45; var cityCenterMaxLng = 44.60;
+                bool inCityZone = (pickupLat >= cityCenterMinLat && pickupLat <= cityCenterMaxLat && pickupLng >= cityCenterMinLng && pickupLng <= cityCenterMaxLng)
+                                  || (destLat >= cityCenterMinLat && destLat <= cityCenterMaxLat && destLng >= cityCenterMinLng && destLng <= cityCenterMaxLng);
+                if (inCityZone) price *= 1.10m;
+
+                // Minimum prices per tariff
+                decimal minPrice = 800m; // Base minimum
+                if (!string.IsNullOrEmpty(tariff))
+                {
+                    switch (tariff.ToLower())
+                    {
+                        case "electro":
+                        case "standard":
+                            minPrice = 300m;
+                            break;
+                        case "economy":
+                        case "start":
+                            minPrice = 800m;
+                            break;
+                        case "comfort":
+                            minPrice = 1000m;
+                            break;
+                        case "business":
+                            minPrice = 1500m;
+                            break;
+                        case "premium":
+                            minPrice = 2000m;
+                            break;
+                    }
+                }
+                
+                if (price < minPrice) price = minPrice;
+                return Math.Round(price, 0);
             }
-
-            var price = baseFare + (decimal)distanceKm * perKm + (decimal)etaMinutes * perMinute;
-            if (pet) price += 100m;
-            if (child) price += 50m;
-
-            var cityCenterMinLat = 40.15; var cityCenterMaxLat = 40.25;
-            var cityCenterMinLng = 44.45; var cityCenterMaxLng = 44.60;
-            bool inCityZone = (pickupLat >= cityCenterMinLat && pickupLat <= cityCenterMaxLat && pickupLng >= cityCenterMinLng && pickupLng <= cityCenterMaxLng)
-                              || (destLat >= cityCenterMinLat && destLat <= cityCenterMaxLat && destLng >= cityCenterMinLng && destLng <= cityCenterMaxLng);
-            if (inCityZone) price *= 1.10m;
-
-            decimal minPrice = v == "moto" ? 300m : (v == "van" ? 1000m : 800m);
-            if (price < minPrice) price = minPrice;
-            return Math.Round(price, 0);
         }
 
         /// <summary>
@@ -116,12 +196,11 @@ namespace Taxi_API.Controllers
         /// **Request Body Parameters:**
         /// - **fromLat** (double, required): Pickup latitude coordinate
         /// - **fromLng** (double, required): Pickup longitude coordinate
-        /// - **to** (array, required: Array of destination stops with address, lat, lng
+        /// - **to** (array, required): Array of destination stops with address, lat, lng
         /// - **paymentMethod** (string, required): Payment method - "cash" or "card"
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
-        /// - **tariff** (string, required): Tariff type - "standard" or "premium"
-        /// - **vehicleType** (string, optional): Vehicle type - "car", "moto", or "van" (default: "car")
+        /// - **tariff** (string, required): Tariff type - "electro", "economy", "comfort", "business", or "premium"
         /// 
         /// **Request Example:**
         /// ```json
@@ -138,8 +217,7 @@ namespace Taxi_API.Controllers
         ///   "paymentMethod": "cash",
         ///   "pet": false,
         ///   "child": true,
-        ///   "tariff": "standard",
-        ///   "vehicleType": "car"
+        ///   "tariff": "economy"
         /// }
         /// ```
         /// 
@@ -170,10 +248,6 @@ namespace Taxi_API.Controllers
             var user = await _db.Users.FindAsync(userId.Value);
             if (user == null) return Unauthorized("User not found in database. Please re-authenticate.");
 
-            var vehicleType = (request.VehicleType ?? "car").ToLower();
-            if (vehicleType != "car" && vehicleType != "moto" && vehicleType != "van")
-                return BadRequest("Vehicle type must be 'car', 'moto', or 'van'");
-
             var order = new Order
             {
                 Id = Guid.NewGuid(),
@@ -188,7 +262,7 @@ namespace Taxi_API.Controllers
                 PetAllowed = request.Pet,
                 ChildSeat = request.Child,
                 Tariff = request.Tariff,
-                VehicleType = vehicleType
+                VehicleType = null // No vehicle type for taxi orders
             };
 
             if (request.To.Length == 1)
@@ -221,7 +295,7 @@ namespace Taxi_API.Controllers
             var eta = (int)Math.Ceiling(totalDistance / 0.5);
             var finalDestination = request.To.Last();
             var price = CalculatePrice(totalDistance, eta, request.FromLat, request.FromLng, 
-                finalDestination.Lat, finalDestination.Lng, request.Tariff, order.VehicleType, request.Pet, request.Child);
+                finalDestination.Lat, finalDestination.Lng, request.Tariff, null, request.Pet, request.Child);
 
             order.DistanceKm = Math.Round(totalDistance, 2);
             order.EtaMinutes = eta;
@@ -230,7 +304,7 @@ namespace Taxi_API.Controllers
             _db.Orders.Add(order);
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, $"{vehicleType}Finding", new { status = "searching" });
+            await _socketService.NotifyOrderEventAsync(order.Id, "taxiFinding", new { status = "searching" });
 
             var driver = await _db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null);
             if (driver != null)
@@ -255,7 +329,7 @@ namespace Taxi_API.Controllers
                 order.EtaMinutes = 5;
                 await _db.SaveChangesAsync();
 
-                await _socketService.NotifyOrderEventAsync(order.Id, $"{vehicleType}Found", new 
+                await _socketService.NotifyOrderEventAsync(order.Id, "taxiFound", new 
                 { 
                     driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone, car = order.DriverCar, plate = order.DriverPlate } 
                 });
@@ -287,8 +361,7 @@ namespace Taxi_API.Controllers
                 order.PaymentMethod,
                 order.PetAllowed,
                 order.ChildSeat,
-                order.Tariff,
-                order.VehicleType
+                order.Tariff
             });
         }
 
@@ -305,11 +378,10 @@ namespace Taxi_API.Controllers
         /// - **fromLat** (double, required): Pickup latitude coordinate
         /// - **fromLng** (double, required): Pickup longitude coordinate
         /// - **to** (array, required): Array of destination stops with address, lat, lng
-        /// - **paymentMethod** (string, required): Payment method - "cash" or "card"
+        /// - **paymentMethod** (string, required: Payment method - "cash" or "card"
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
-        /// - **tariff** (string, required): Tariff type - "standard" or "premium"
-        /// - **vehicleType** (string, optional: Vehicle type - "car", "moto", or "van" (default: "car")
+        /// - **tariff** (string, required): Tariff type - "electro", "economy", "comfort", "business", or "premium"
         /// 
         /// **Request Example:**
         /// ```json
@@ -326,8 +398,7 @@ namespace Taxi_API.Controllers
         ///   "paymentMethod": "cash",
         ///   "pet": false,
         ///   "child": true,
-        ///   "tariff": "standard",
-        ///   "vehicleType": "car"
+        ///   "tariff": "economy"
         /// }
         /// ```
         /// 
@@ -362,10 +433,6 @@ namespace Taxi_API.Controllers
             var driver = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value && u.IsDriver);
             if (driver == null) return BadRequest(new { error = "Only drivers can accept orders or user not found in database" });
 
-            var vehicleType = (request.VehicleType ?? "car").ToLower();
-            if (vehicleType != "car" && vehicleType != "moto" && vehicleType != "van")
-                return BadRequest("Vehicle type must be 'car', 'moto', or 'van'");
-
             var order = new Order
             {
                 Id = Guid.NewGuid(),
@@ -380,10 +447,7 @@ namespace Taxi_API.Controllers
                 PetAllowed = request.Pet,
                 ChildSeat = request.Child,
                 Tariff = request.Tariff,
-                VehicleType = vehicleType,
-                DriverId = userId.Value,
-                DriverName = driver.Name,
-                DriverPhone = driver.Phone
+                VehicleType = null // No vehicle type for taxi orders
             };
 
             if (request.To.Length == 1)
@@ -463,13 +527,12 @@ namespace Taxi_API.Controllers
                 order.PaymentMethod,
                 order.PetAllowed,
                 order.ChildSeat,
-                order.Tariff,
-                order.VehicleType
+                order.Tariff
             });
         }
 
         /// <summary>
-        /// Request a new order (legacy endpoint)
+        /// Request a new order (supports both taxi and delivery)
         /// </summary>
         [Authorize]
         [HttpPost("request")]
@@ -485,12 +548,21 @@ namespace Taxi_API.Controllers
             order.UserId = userId.Value;
             order.CreatedAt = DateTime.UtcNow;
 
+            // Determine if this is a delivery or taxi order based on Action field
+            bool isDelivery = !string.IsNullOrEmpty(order.Action) && order.Action.ToLower() == "delivery";
+
             if (order.ScheduledFor.HasValue && order.ScheduledFor.Value > DateTime.UtcNow)
             {
                 order.Status = "scheduled";
                 var distance = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
                 var eta = (int)Math.Ceiling(distance / 0.5);
-                var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.VehicleType, order.PetAllowed, order.ChildSeat);
+                
+                // For delivery, use vehicle type; for taxi, use tariff
+                var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, 
+                    order.DestLat.Value, order.DestLng.Value, 
+                    isDelivery ? null : order.Tariff, 
+                    isDelivery ? order.VehicleType : null, 
+                    order.PetAllowed, order.ChildSeat);
 
                 order.DistanceKm = Math.Round(distance, 2);
                 order.EtaMinutes = eta;
@@ -504,7 +576,13 @@ namespace Taxi_API.Controllers
             order.Status = "searching";
             var distanceNow = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
             var etaNow = (int)Math.Ceiling(distanceNow / 0.5);
-            var priceNow = CalculatePrice(distanceNow, etaNow, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.VehicleType, order.PetAllowed, order.ChildSeat);
+            
+            // For delivery, use vehicle type; for taxi, use tariff
+            var priceNow = CalculatePrice(distanceNow, etaNow, order.PickupLat.Value, order.PickupLng.Value, 
+                order.DestLat.Value, order.DestLng.Value, 
+                isDelivery ? null : order.Tariff, 
+                isDelivery ? order.VehicleType : null, 
+                order.PetAllowed, order.ChildSeat);
 
             order.DistanceKm = Math.Round(distanceNow, 2);
             order.EtaMinutes = etaNow;
@@ -513,8 +591,12 @@ namespace Taxi_API.Controllers
             _db.Orders.Add(order);
             await _db.SaveChangesAsync();
 
-            var vType = (order.VehicleType ?? "car").ToLower();
-            await _socketService.NotifyOrderEventAsync(order.Id, $"{vType}Finding", new { status = "searching" });
+            // For delivery orders, use vehicle type in socket notifications
+            var notificationType = isDelivery && !string.IsNullOrEmpty(order.VehicleType) 
+                ? order.VehicleType.ToLower() 
+                : "taxi";
+            
+            await _socketService.NotifyOrderEventAsync(order.Id, $"{notificationType}Finding", new { status = "searching" });
 
             var driver = await _db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null);
             if (driver != null)
@@ -528,14 +610,14 @@ namespace Taxi_API.Controllers
                 order.EtaMinutes = 5;
                 await _db.SaveChangesAsync();
 
-                await _socketService.NotifyOrderEventAsync(order.Id, $"{vType}Found", new { driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone } });
+                await _socketService.NotifyOrderEventAsync(order.Id, $"{notificationType}Found", new { driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone } });
             }
 
             return Ok(order);
         }
 
         /// <summary>
-        /// Get ride estimate with order details
+        /// Get ride estimate with order details (supports both taxi and delivery)
         /// </summary>
         [Authorize]
         [HttpPost("estimate/body")]
@@ -546,178 +628,119 @@ namespace Taxi_API.Controllers
 
             var distance = HaversineDistanceKm(order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value);
             var eta = (int)Math.Ceiling(distance / 0.5);
-            var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, order.DestLat.Value, order.DestLng.Value, order.Tariff, order.VehicleType, order.PetAllowed, order.ChildSeat);
+            
+            // Determine if this is a delivery or taxi order based on Action field
+            bool isDelivery = !string.IsNullOrEmpty(order.Action) && order.Action.ToLower() == "delivery";
+            
+            // For delivery, use vehicle type; for taxi, use tariff
+            var price = CalculatePrice(distance, eta, order.PickupLat.Value, order.PickupLng.Value, 
+                order.DestLat.Value, order.DestLng.Value, 
+                isDelivery ? null : order.Tariff, 
+                isDelivery ? order.VehicleType : null, 
+                order.PetAllowed, order.ChildSeat);
 
             return Ok(new { distanceKm = Math.Round(distance, 2), price, etaMinutes = eta });
         }
 
         /// <summary>
-        /// Get ride estimate by coordinates
-        /// </summary>
-        [Authorize]
-        [HttpGet("estimate")]
-        public IActionResult EstimateGet([FromQuery] double pickupLat, [FromQuery] double pickupLng, [FromQuery] double destLat, [FromQuery] double destLng, [FromQuery] string? vehicleType, [FromQuery] string? tariff, [FromQuery] bool pet = false, [FromQuery] bool child = false)
-        {
-            var distance = HaversineDistanceKm(pickupLat, pickupLng, destLat, destLng);
-            var eta = (int)Math.Ceiling(distance / 0.5);
-            var price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, tariff, vehicleType, pet, child);
-            return Ok(new { distanceKm = Math.Round(distance, 2), price, etaMinutes = eta, vehicleType = vehicleType ?? "car" });
-        }
-
-        /// <summary>
-        /// Get all available tariffs with price estimates
+        /// Get ride estimate by coordinates (supports both taxi and delivery)
         /// </summary>
         /// <remarks>
-        /// Returns 5 tariff options (vehicle type + tariff combinations) with price estimates based on pickup and destination locations.
-        /// 
-        /// **Tariff Options:**
-        /// 1. **Moto Standard** - Budget motorcycle option
-        /// 2. **Car Standard** - Standard car service
-        /// 3. **Car Premium** - Premium car service with higher quality
-        /// 4. **Van Standard** - Spacious van for groups/cargo
-        /// 5. **Van Premium** - Premium van service
-        /// 
-        /// **Query Parameters:**
-        /// - **pickupLat** (double, required): Pickup latitude
-        /// - **pickupLng** (double, required): Pickup longitude
-        /// - **destLat** (double, required): Destination latitude
-        /// - **destLng** (double, required): Destination longitude
-        /// - **pet** (bool, optional): Include pet surcharge (default: false)
-        /// - **child** (bool, optional): Include child seat surcharge (default: false)
-        /// 
-        /// **Example Request:**
-        /// ```
-        /// GET /api/orders/tariffs?pickupLat=40.1872&pickupLng=44.5152&destLat=40.1776&destLng=44.5126&pet=false&child=false
-        /// ```
-        /// 
-        /// **Example Response:**
-        /// ```json
-        /// {
-        ///   "tariffs": [
-        ///     {
-        ///       "id": 1,
-        ///       "name": "Moto Standard",
-        ///       "vehicleType": "moto",
-        ///       "tariff": "standard",
-        ///       "description": "Quick and affordable motorcycle ride",
-        ///       "icon": "???",
-        ///       "price": 450,
-        ///       "distanceKm": 2.5,
-        ///       "etaMinutes": 15,
-        ///       "currency": "AMD"
-        ///     },
-        ///     ...
-        ///   ]
-        /// }
-        /// ```
+        /// For taxi orders: Use 'tariff' parameter (electro, economy, comfort, business, premium)
+        /// For delivery orders: Use 'vehicleType' parameter (moto, car, van)
+        /// If both are provided, vehicleType takes precedence (delivery mode)
         /// </remarks>
-        /// <response code="200">Returns list of 5 tariff options with prices</response>
-        /// <response code="400">Invalid coordinates provided</response>
-        /// <response code="401">Unauthorized - missing or invalid token</response>
         [Authorize]
-        [HttpGet("tariffs")]
-        [ProducesResponseType(200)]
-        [ProducesResponseType(400)]
-        public IActionResult GetTariffs(
+        [HttpGet("estimate")]
+        public IActionResult EstimateGet(
             [FromQuery] double pickupLat, 
             [FromQuery] double pickupLng, 
             [FromQuery] double destLat, 
             [FromQuery] double destLng, 
+            [FromQuery] string? vehicleType, 
+            [FromQuery] string? tariff, 
             [FromQuery] bool pet = false, 
             [FromQuery] bool child = false)
         {
-            if (pickupLat == 0 || pickupLng == 0 || destLat == 0 || destLng == 0)
-                return BadRequest("Valid coordinates required (pickupLat, pickupLng, destLat, destLng)");
-
             var distance = HaversineDistanceKm(pickupLat, pickupLng, destLat, destLng);
             var eta = (int)Math.Ceiling(distance / 0.5);
+            
+            // If vehicleType is provided, it's a delivery order; otherwise, it's a taxi order
+            bool isDelivery = !string.IsNullOrEmpty(vehicleType);
+            
+            var price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, 
+                isDelivery ? null : tariff, 
+                isDelivery ? vehicleType : null, 
+                pet, child);
+            
+            var result = new 
+            { 
+                distanceKm = Math.Round(distance, 2), 
+                price, 
+                etaMinutes = eta
+            };
+            
+            // Include the type that was used in the calculation
+            if (isDelivery)
+            {
+                return Ok(new { result.distanceKm, result.price, result.etaMinutes, vehicleType });
+            }
+            else
+            {
+                return Ok(new { result.distanceKm, result.price, result.etaMinutes, tariff });
+            }
+        }
 
+        /// <summary>
+        /// Get all available tariffs with surcharges
+        /// </summary>
+        /// <remarks>
+        /// Returns 5 tariff options with their surcharge amounts.
+        /// No location parameters required.
+        /// 
+        /// **Tariff Tiers with Surcharges:**
+        /// 1. **Standard (Electro)** - +100 AMD surcharge
+        /// 2. **Start (Economy)** - +200 AMD surcharge
+        /// 3. **Comfort** - +300 AMD surcharge
+        /// 4. **Business** - +400 AMD surcharge
+        /// 5. **Premium** - +500 AMD surcharge
+        /// 
+        /// **Example Request:**
+        /// ```
+        /// GET /api/orders/tariffs
+        /// ```
+        /// 
+        /// **Example Response:**
+        /// ```json
+        /// [
+        ///   {
+        ///     "tariff": "electro",
+        ///     "surcharge": 100
+        ///   },
+        ///   {
+        ///     "tariff": "economy",
+        ///     "surcharge": 200
+        ///   },
+        ///   ...
+        /// ]
+        /// ```
+        /// </remarks>
+        /// <response code="200">Returns list of 5 tariffs with surcharge amounts</response>
+        [Authorize]
+        [HttpGet("tariffs")]
+        [ProducesResponseType(200)]
+        public IActionResult GetTariffs()
+        {
             var tariffs = new[]
             {
-                new
-                {
-                    id = 1,
-                    name = "Moto Standard",
-                    vehicleType = "moto",
-                    tariff = "standard",
-                    description = "Quick and affordable motorcycle ride",
-                    icon = "???",
-                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "moto", pet, child),
-                    distanceKm = Math.Round(distance, 2),
-                    etaMinutes = eta,
-                    currency = "AMD",
-                    features = new[] { "Fast", "Affordable", "Solo rider" }
-                },
-                new
-                {
-                    id = 2,
-                    name = "Car Standard",
-                    vehicleType = "car",
-                    tariff = "standard",
-                    description = "Comfortable standard car ride",
-                    icon = "??",
-                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "car", pet, child),
-                    distanceKm = Math.Round(distance, 2),
-                    etaMinutes = eta,
-                    currency = "AMD",
-                    features = new[] { "Comfortable", "Up to 4 passengers", "Air conditioning" }
-                },
-                new
-                {
-                    id = 3,
-                    name = "Car Premium",
-                    vehicleType = "car",
-                    tariff = "premium",
-                    description = "High-end premium car service",
-                    icon = "??",
-                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "premium", "car", pet, child),
-                    distanceKm = Math.Round(distance, 2),
-                    etaMinutes = eta,
-                    currency = "AMD",
-                    features = new[] { "Luxury", "Top-rated drivers", "Premium vehicles" }
-                },
-                new
-                {
-                    id = 4,
-                    name = "Van Standard",
-                    vehicleType = "van",
-                    tariff = "standard",
-                    description = "Spacious van for groups or cargo",
-                    icon = "??",
-                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "standard", "van", pet, child),
-                    distanceKm = Math.Round(distance, 2),
-                    etaMinutes = eta,
-                    currency = "AMD",
-                    features = new[] { "Spacious", "Up to 7 passengers", "Cargo space" }
-                },
-                new
-                {
-                    id = 5,
-                    name = "Van Premium",
-                    vehicleType = "van",
-                    tariff = "premium",
-                    description = "Luxury van for premium group travel",
-                    icon = "??",
-                    price = CalculatePrice(distance, eta, pickupLat, pickupLng, destLat, destLng, "premium", "van", pet, child),
-                    distanceKm = Math.Round(distance, 2),
-                    etaMinutes = eta,
-                    currency = "AMD",
-                    features = new[] { "Luxury", "7+ passengers", "Premium amenities" }
-                }
+                new { tariff = "electro", surcharge = 100 },
+                new { tariff = "economy", surcharge = 200 },
+                new { tariff = "comfort", surcharge = 300 },
+                new { tariff = "business", surcharge = 400 },
+                new { tariff = "premium", surcharge = 500 }
             };
 
-            return Ok(new
-            {
-                tariffs = tariffs,
-                totalOptions = tariffs.Length,
-                pickupLocation = new { lat = pickupLat, lng = pickupLng },
-                destinationLocation = new { lat = destLat, lng = destLng },
-                surcharges = new
-                {
-                    pet = pet ? 100 : 0,
-                    child = child ? 50 : 0
-                }
-            });
+            return Ok(tariffs);
         }
 
         /// <summary>
