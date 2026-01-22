@@ -36,6 +36,12 @@ ENV ASPNETCORE_URLS=http://+:5000
 
 COPY --from=publish /app/publish .
 
+# Create Storage directory with proper permissions
+RUN mkdir -p /app/Storage && chmod 777 /app/Storage
+
+# Create tessdata directory if needed
+RUN mkdir -p /app/tessdata && chmod 755 /app/tessdata
+
 EXPOSE 5000
 
 ENTRYPOINT ["dotnet", "TaxiApi.dll"]
