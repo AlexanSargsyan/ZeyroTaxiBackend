@@ -20,7 +20,7 @@ namespace Taxi_API.Controllers
     public record DestinationStop(string Address, double Lat, double Lng);
     
     /// <summary>
-    /// Request model for creating/accepting orders
+    /// Request model for creating/accepting orders with scheduled time support
     /// </summary>
     public record CreateOrderRequest(
         double FromLat,
@@ -29,7 +29,8 @@ namespace Taxi_API.Controllers
         string PaymentMethod,
         bool Pet,
         bool Child,
-        string Tariff
+        string Tariff,
+        DateTime? RequestedTime  // When the taxi is needed (null = immediate, future = scheduled)
     );
 
     [ApiController]
@@ -191,7 +192,7 @@ namespace Taxi_API.Controllers
         /// **Main endpoint for clients to request a ride.**
         /// 
         /// Creates a complete order with all details, calculates pricing,
-        /// and automatically assigns an available driver.
+        /// and automatically assigns an available driver (immediate) or schedules for later.
         /// 
         /// **Request Body Parameters:**
         /// - **fromLat** (double, required): Pickup latitude coordinate
@@ -201,8 +202,13 @@ namespace Taxi_API.Controllers
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
         /// - **tariff** (string, required): Tariff type - "electro", "economy", "comfort", "business", or "premium"
+        /// - **requestedTime** (datetime, optional): When the taxi is needed. If null or past, dispatch immediately. If future, schedule for that time.
         /// 
-        /// **Request Example:**
+        /// **Scheduling Behavior:**
+        /// - **Immediate Ride** (requestedTime = null or past): Status = "searching", driver assigned immediately
+        /// - **Scheduled Ride** (requestedTime = future): Status = "scheduled", driver assigned ~5 minutes before requestedTime
+        /// 
+        /// **Request Example (Immediate):**
         /// ```json
         /// {
         ///   "fromLat": 40.1872,
@@ -217,15 +223,36 @@ namespace Taxi_API.Controllers
         ///   "paymentMethod": "cash",
         ///   "pet": false,
         ///   "child": true,
-        ///   "tariff": "economy"
+        ///   "tariff": "economy",
+        ///   "requestedTime": null
+        /// }
+        /// ```
+        /// 
+        /// **Request Example (Scheduled for 2 hours from now):**
+        /// ```json
+        /// {
+        ///   "fromLat": 40.1872,
+        ///   "fromLng": 44.5152,
+        ///   "to": [
+        ///     {
+        ///       "address": "Republic Square, Yerevan",
+        ///       "lat": 40.1776,
+        ///       "lng": 44.5126
+        ///     }
+        ///   ],
+        ///   "paymentMethod": "cash",
+        ///   "pet": false,
+        ///   "child": false,
+        ///   "tariff": "comfort",
+        ///   "requestedTime": "2026-01-24T14:30:00Z"
         /// }
         /// ```
         /// 
         /// **Response:**
-        /// Returns the created order with calculated price, distance, ETA, and assigned driver info.
+        /// Returns the created order with calculated price, distance, ETA, and assigned driver info (if immediate).
         /// </remarks>
-        /// <param name="request">Order creation request with pickup/destination, payment, and preferences</param>
-        /// <response code="200">Order created successfully with driver assigned</response>
+        /// <param name="request">Order creation request with pickup/destination, payment, preferences, and requested time</param>
+        /// <response code="200">Order created successfully</response>
         /// <response code="400">Invalid request parameters</response>
         /// <response code="401">Unauthorized - invalid or missing authentication token</response>
         [Authorize]
@@ -248,12 +275,15 @@ namespace Taxi_API.Controllers
             var user = await _db.Users.FindAsync(userId.Value);
             if (user == null) return Unauthorized("User not found in database. Please re-authenticate.");
 
+            // Determine if this is a scheduled ride (requestedTime is in the future)
+            bool isScheduled = request.RequestedTime.HasValue && request.RequestedTime.Value > DateTime.UtcNow.AddMinutes(5);
+            
             var order = new Order
             {
                 Id = Guid.NewGuid(),
                 UserId = userId.Value,
                 CreatedAt = DateTime.UtcNow,
-                Status = "searching",
+                Status = isScheduled ? "scheduled" : "searching",
                 Action = "ride",
                 PickupLat = request.FromLat,
                 PickupLng = request.FromLng,
@@ -262,7 +292,8 @@ namespace Taxi_API.Controllers
                 PetAllowed = request.Pet,
                 ChildSeat = request.Child,
                 Tariff = request.Tariff,
-                VehicleType = null // No vehicle type for taxi orders
+                VehicleType = null, // No vehicle type for taxi orders
+                ScheduledFor = request.RequestedTime // Store the requested time
             };
 
             if (request.To.Length == 1)
@@ -304,35 +335,52 @@ namespace Taxi_API.Controllers
             _db.Orders.Add(order);
             await _db.SaveChangesAsync();
 
-            await _socketService.NotifyOrderEventAsync(order.Id, "taxiFinding", new { status = "searching" });
-
-            var driver = await _db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null);
-            if (driver != null)
+            // Handle immediate vs scheduled dispatch
+            if (isScheduled)
             {
-                order.DriverId = driver.Id;
-                order.DriverName = driver.Name;
-                order.DriverPhone = driver.Phone;
-                
-                var driverProfile = await _db.DriverProfiles.FirstOrDefaultAsync(dp => dp.UserId == driver.Id);
-                if (driverProfile != null)
-                {
-                    order.DriverCar = $"{driverProfile.CarMake} {driverProfile.CarModel}".Trim();
-                    order.DriverPlate = driverProfile.CarPlate;
-                }
-                else
-                {
-                    order.DriverCar = "Toyota";
-                    order.DriverPlate = "510ZR10";
-                }
-                
-                order.Status = "assigned";
-                order.EtaMinutes = 5;
-                await _db.SaveChangesAsync();
-
-                await _socketService.NotifyOrderEventAsync(order.Id, "taxiFound", new 
+                // Scheduled ride - do not assign driver yet
+                // The ScheduledPlanProcessor background service will handle driver assignment
+                // approximately 5-10 minutes before the scheduled time
+                await _socketService.NotifyOrderEventAsync(order.Id, "rideScheduled", new 
                 { 
-                    driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone, car = order.DriverCar, plate = order.DriverPlate } 
+                    status = "scheduled", 
+                    scheduledFor = order.ScheduledFor,
+                    message = $"Ride scheduled for {order.ScheduledFor:yyyy-MM-dd HH:mm}" 
                 });
+            }
+            else
+            {
+                // Immediate ride - start searching for driver immediately
+                await _socketService.NotifyOrderEventAsync(order.Id, "taxiFinding", new { status = "searching" });
+
+                var driver = await _db.Users.FirstOrDefaultAsync(u => u.IsDriver && u.DriverProfile != null);
+                if (driver != null)
+                {
+                    order.DriverId = driver.Id;
+                    order.DriverName = driver.Name;
+                    order.DriverPhone = driver.Phone;
+                    
+                    var driverProfile = await _db.DriverProfiles.FirstOrDefaultAsync(dp => dp.UserId == driver.Id);
+                    if (driverProfile != null)
+                    {
+                        order.DriverCar = $"{driverProfile.CarMake} {driverProfile.CarModel}".Trim();
+                        order.DriverPlate = driverProfile.CarPlate;
+                    }
+                    else
+                    {
+                        order.DriverCar = "Toyota";
+                        order.DriverPlate = "510ZR10";
+                    }
+                    
+                    order.Status = "assigned";
+                    order.EtaMinutes = 5;
+                    await _db.SaveChangesAsync();
+
+                    await _socketService.NotifyOrderEventAsync(order.Id, "taxiFound", new 
+                    { 
+                        driver = new { id = driver.Id, name = driver.Name, phone = driver.Phone, car = order.DriverCar, plate = order.DriverPlate } 
+                    });
+                }
             }
 
             // Return DTO without navigation properties to avoid circular reference
@@ -350,6 +398,7 @@ namespace Taxi_API.Controllers
                 order.StopsJson,
                 order.Status,
                 order.CreatedAt,
+                order.ScheduledFor,
                 order.DriverId,
                 order.DriverName,
                 order.DriverPhone,
@@ -372,18 +421,19 @@ namespace Taxi_API.Controllers
         /// **Endpoint for drivers to manually create/accept an order.**
         /// 
         /// Used when a driver receives an order request via phone or manually creates
-        /// an order for a client. The order is immediately assigned to the driver.
+        /// an order for a client. The order can be immediate or scheduled for a future time.
         /// 
         /// **Request Body Parameters:**
         /// - **fromLat** (double, required): Pickup latitude coordinate
         /// - **fromLng** (double, required): Pickup longitude coordinate
         /// - **to** (array, required): Array of destination stops with address, lat, lng
-        /// - **paymentMethod** (string, required: Payment method - "cash" or "card"
+        /// - **paymentMethod** (string, required): Payment method - "cash" or "card"
         /// - **pet** (boolean, required): Pet allowed (+100 AMD surcharge)
         /// - **child** (boolean, required): Child seat required (+50 AMD surcharge)
         /// - **tariff** (string, required): Tariff type - "electro", "economy", "comfort", "business", or "premium"
+        /// - **requestedTime** (datetime, optional): When the taxi is needed. If null or past, immediate. If future, scheduled.
         /// 
-        /// **Request Example:**
+        /// **Request Example (Immediate):**
         /// ```json
         /// {
         ///   "fromLat": 40.1872,
@@ -398,20 +448,41 @@ namespace Taxi_API.Controllers
         ///   "paymentMethod": "cash",
         ///   "pet": false,
         ///   "child": true,
-        ///   "tariff": "economy"
+        ///   "tariff": "economy",
+        ///   "requestedTime": null
+        /// }
+        /// ```
+        /// 
+        /// **Request Example (Scheduled):**
+        /// ```json
+        /// {
+        ///   "fromLat": 40.1872,
+        ///   "fromLng": 44.5152,
+        ///   "to": [
+        ///     {
+        ///       "address": "Republic Square, Yerevan",
+        ///       "lat": 40.1776,
+        ///       "lng": 44.5126
+        ///     }
+        ///   ],
+        ///   "paymentMethod": "cash",
+        ///   "pet": false,
+        ///   "child": false,
+        ///   "tariff": "comfort",
+        ///   "requestedTime": "2026-01-24T16:00:00Z"
         /// }
         /// ```
         /// 
         /// **Differences from create-order:**
         /// - Only drivers can use this endpoint (verified by IsDriver flag)
-        /// - Order status is set to "assigned" immediately (not "searching")
-        /// - Driver is automatically assigned to themselves
+        /// - For immediate orders: Status = "assigned" immediately (driver is assigned to themselves)
+        /// - For scheduled orders: Status = "scheduled", driver pre-assigned to themselves
         /// 
         /// **Response:**
         /// Returns the created order with calculated price, distance, ETA, and driver info.
         /// </remarks>
-        /// <param name="request">Order acceptance request with pickup/destination, payment, and preferences</param>
-        /// <response code="200">Order accepted successfully and assigned to driver</response>
+        /// <param name="request">Order acceptance request with pickup/destination, payment, preferences, and requested time</param>
+        /// <response code="200">Order accepted successfully</response>
         /// <response code="400">Invalid request parameters or user is not a driver</response>
         /// <response code="401">Unauthorized - invalid or missing authentication token</response>
         [Authorize]
@@ -433,12 +504,15 @@ namespace Taxi_API.Controllers
             var driver = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId.Value && u.IsDriver);
             if (driver == null) return BadRequest(new { error = "Only drivers can accept orders or user not found in database" });
 
+            // Determine if this is a scheduled ride
+            bool isScheduled = request.RequestedTime.HasValue && request.RequestedTime.Value > DateTime.UtcNow.AddMinutes(5);
+
             var order = new Order
             {
                 Id = Guid.NewGuid(),
                 UserId = userId.Value,
                 CreatedAt = DateTime.UtcNow,
-                Status = "assigned",
+                Status = isScheduled ? "scheduled" : "assigned",
                 Action = "ride",
                 PickupLat = request.FromLat,
                 PickupLng = request.FromLng,
@@ -447,7 +521,12 @@ namespace Taxi_API.Controllers
                 PetAllowed = request.Pet,
                 ChildSeat = request.Child,
                 Tariff = request.Tariff,
-                VehicleType = null // No vehicle type for taxi orders
+                VehicleType = null, // No vehicle type for taxi orders
+                ScheduledFor = request.RequestedTime,
+                // Pre-assign driver for both immediate and scheduled orders
+                DriverId = userId.Value,
+                DriverName = driver.Name,
+                DriverPhone = driver.Phone
             };
 
             if (request.To.Length == 1)
@@ -516,6 +595,7 @@ namespace Taxi_API.Controllers
                 order.StopsJson,
                 order.Status,
                 order.CreatedAt,
+                order.ScheduledFor,
                 order.DriverId,
                 order.DriverName,
                 order.DriverPhone,

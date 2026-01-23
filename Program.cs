@@ -37,7 +37,12 @@ builder.Services.AddScoped<IStorageService, LocalStorageService>();
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 builder.Services.AddScoped<ISmsService, VeloconnectSmsService>();
 builder.Services.AddScoped<ITokenService, JwtTokenService>();
+
+// Native library services - always use real implementations
+// These require native dependencies (OpenCV, Tesseract) to be installed
 builder.Services.AddSingleton<IImageComparisonService, OpenCvImageComparisonService>();
+builder.Services.AddSingleton<IOcrService, TesseractOcrService>();
+
 // Register OpenAI service for voice/chat
 builder.Services.AddSingleton<IOpenAiService, OpenAiService>();
 
@@ -55,9 +60,6 @@ builder.Services.AddScoped<IdramPaymentService>();
 // Register IPay payment service
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IPayPaymentService>();
-
-// Register IOcrService implementation (Tesseract OcrService) in DI.
-builder.Services.AddSingleton<IOcrService, TesseractOcrService>();
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "very_secret_key_please_change";
 var issuer = builder.Configuration["Jwt:Issuer"] ?? "TaxiApi";
